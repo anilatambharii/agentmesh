@@ -13,6 +13,15 @@
 
 ---
 
+<!-- Demo GIF — 20-step agent: $3,200/mo → $960/mo in real time -->
+<!-- To record: pip install rich && python examples/demo.py -->
+<!-- See docs/social-posts.md for recording instructions -->
+![AgentMesh demo — 70% cost reduction in real time](docs/demo.gif)
+
+> **See it live:** `pip install rich && python examples/demo.py`
+
+---
+
 ## The Problem
 
 Enterprise AI costs are spiraling out of control:
