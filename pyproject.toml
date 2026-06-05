@@ -1,0 +1,89 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentmesh"
+version = "0.1.0"
+description = "The governance plane for AI agents — policy, budget, and audit across every framework"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Anil Prasad", email = "meetanilp@gmail.com" }]
+keywords = [
+    "ai", "agents", "governance", "llm", "token-optimization",
+    "budget-enforcement", "audit-trail", "langgraph", "crewai",
+    "multi-agent", "cost-control", "enterprise-ai"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "cryptography>=41.0",
+]
+
+[project.optional-dependencies]
+langgraph = ["langgraph>=0.2", "langchain>=0.2"]
+crewai = ["crewai>=0.70"]
+openai = ["openai>=1.50", "openai-agents>=0.0.5"]
+compression = ["llmlingua>=0.2"]
+otel = [
+    "opentelemetry-sdk>=1.25",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.25",
+]
+all = [
+    "agentmesh[langgraph,crewai,openai,compression,otel]",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "black>=24.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+]
+
+[project.urls]
+Homepage = "https://github.com/anilatambharii/agentmesh"
+Documentation = "https://github.com/anilatambharii/agentmesh/wiki"
+Repository = "https://github.com/anilatambharii/agentmesh"
+Issues = "https://github.com/anilatambharii/agentmesh/issues"
+Changelog = "https://github.com/anilatambharii/agentmesh/blob/main/CHANGELOG.md"
+
+[project.scripts]
+agentmesh = "agentmesh.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agentmesh"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
