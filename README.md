@@ -4,6 +4,8 @@
 
 > "Istio for AI agents. Stop tokenmaxxing. Start governing."
 
+[![CI](https://github.com/anilatambharii/agentmesh/actions/workflows/ci.yml/badge.svg)](https://github.com/anilatambharii/agentmesh/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/anilatambharii/agentmesh/actions/workflows/codeql.yml/badge.svg)](https://github.com/anilatambharii/agentmesh/actions/workflows/codeql.yml)
 [![PyPI version](https://badge.fury.io/py/agentmesh.svg)](https://badge.fury.io/py/agentmesh)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
