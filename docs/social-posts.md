@@ -38,7 +38,11 @@ or OpenAI Agents SDK agent in one line, zero changes to agent code.
 
 Real numbers from a 50-engineer team's code review agent: $8,400/month → $840/month.
 
+The README has an animated demo showing the before/after cost spiral in real time
+(43-frame terminal animation, no API keys needed to run locally):
 https://github.com/anilatambharii/agentmesh
+
+To run the demo yourself: pip install agentmesh rich && python examples/demo.py
 
 Happy to answer questions about the architecture, the quadratic cost problem,
 or the BPMN bridge — the last one is something I haven't seen anyone else tackle.
@@ -79,6 +83,7 @@ That's O(n²). Not linear. Nobody warns you about this.
 ---
 
 **Tweet 3 — The Real Bill**
+> 📎 Attach: `docs/demo.gif`  ← the before/after terminal animation lands perfectly here
 ```
 I profiled a real 3-step code review agent at a 50-engineer company.
 
@@ -90,6 +95,8 @@ a 50,000-token security manual into EVERY request.
 The team had zero visibility into this.
 
 After fixing it: $840/month. 90% reduction.
+
+[see the cost spiral in real time ↑]
 ```
 
 ---
@@ -134,6 +141,23 @@ governed = mesh.wrap_langgraph(your_graph)
 ```
 
 That's it. Every optimization applies automatically.
+```
+
+---
+
+**Tweet 5b — The Demo GIF**
+> 📎 Attach: `docs/demo.gif`  ← upload directly to Twitter when composing
+```
+Here's what it looks like in practice.
+
+Left: unoptimised agent — costs spiral to $946/month as context
+grows with every step. Step 17 re-injects a 50k-token security
+manual. Nobody noticed.
+
+Right: same agent wrapped with AgentMesh — model routing, context
+pruning, semantic cache. $284/month. Zero code changes.
+
+github.com/anilatambharii/agentmesh
 ```
 
 ---
@@ -261,6 +285,9 @@ It's an open source governance layer that wraps your existing agents
 → Ed25519 audit trail — EU AI Act / NIST AI RMF compliance as a side effect
 
 Zero changes to your existing agent code. One line to wrap.
+
+[embed docs/demo.gif here — LinkedIn auto-plays GIFs inline,
+ this gets 3-5x more reach than a text-only post]
 
 Full post + code: [link to blog post]
 GitHub (Apache 2.0): github.com/anilatambharii/agentmesh
