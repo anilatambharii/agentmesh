@@ -1,0 +1,59 @@
+# AgentMesh Policy Template: Healthcare / Life Sciences
+# ──────────────────────────────────────────────────────
+# Target: Epic Systems, Cerner, Veeva, Meditech, hospital systems,
+#         pharma companies, clinical AI vendors, payers
+#
+# Compliance: HIPAA Security Rule, EU AI Act, NIST AI RMF, FDA SaMD
+# Risk level: CRITICAL — PHI data, patient safety
+#
+# Key restrictions:
+#   - Hard stop: ALWAYS (patient safety over cost)
+#   - PII detection: ALWAYS on
+#   - Data residency: us-healthcare (HIPAA)
+#   - Max model: sonnet (no GPT-4-level inference without human review)
+
+version: "1.0"
+policies:
+  - name: healthcare-phi-production
+    applies_to:
+      teams: ["clinical-ai", "analytics", "revenue-cycle"]
+      agent_roles: ["clinical-assistant", "coder", "prior-auth", "care-manager"]
+
+    budget:
+      daily_tokens: 1_500_000
+      monthly_usd: 4_000
+      per_run_tokens: 30_000           # Strict per-encounter limits
+      hard_stop: true                  # HIPAA: cannot leak to over-quota calls
+
+    model_routing:
+      default: "claude-haiku-4-5"
+      upgrade_triggers:
+        - condition: "task_complexity > 0.90"
+          model: "claude-sonnet-4-6"
+      max_allowed: "claude-sonnet-4-6"
+
+    optimization:
+      semantic_cache: false            # PHI: never cache patient-specific queries
+      compression_threshold: 0.80
+      context_pruning: true
+      cache_ttl_seconds: 0             # PHI must not be cached
+
+    circuit_breaker:
+      max_iterations: 15              # Tighter: clinical agents must be concise
+      max_tool_calls: 30
+      stall_detection_seconds: 60     # Fast stall detection in clinical context
+
+    compliance:
+      frameworks:
+        - hipaa
+        - eu-ai-act
+        - nist-ai-rmf
+      pii_detection: true
+      data_residency: "us-healthcare"
+
+    metadata:
+      template: "healthcare"
+      risk_level: "critical"
+      hipaa_compliant: true
+      phi_handling: true
+      last_reviewed: "2026-06-01"

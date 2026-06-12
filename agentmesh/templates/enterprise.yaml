@@ -1,0 +1,55 @@
+# AgentMesh Policy Template: Enterprise Baseline
+# ────────────────────────────────────────────────
+# Target: Any Fortune 500 enterprise deploying AI agents.
+#         Good starting point for NVIDIA, Microsoft, Google, Meta,
+#         Apple, Netflix, Amazon, and similar scale organizations.
+#
+# Compliance: SOC 2 Type II, ISO 42001, NIST AI RMF
+# Risk level: MEDIUM — general enterprise usage
+
+version: "1.0"
+policies:
+  - name: enterprise-baseline
+    applies_to:
+      teams: ["engineering", "product", "data-science", "operations"]
+      agent_roles: ["orchestrator", "worker", "researcher", "analyst"]
+
+    budget:
+      daily_tokens: 5_000_000
+      monthly_usd: 10_000
+      per_run_tokens: 100_000
+      hard_stop: true
+
+    model_routing:
+      default: "claude-haiku-4-5"
+      upgrade_triggers:
+        - condition: "task_complexity > 0.80"
+          model: "claude-sonnet-4-6"
+        - condition: "requires_reasoning"
+          model: "claude-sonnet-4-6"
+      max_allowed: "claude-sonnet-4-6"
+      fallback: "claude-haiku-4-5"
+
+    optimization:
+      semantic_cache: true
+      compression_threshold: 0.75
+      context_pruning: true
+      cache_ttl_seconds: 3600
+
+    circuit_breaker:
+      max_iterations: 30
+      max_tool_calls: 60
+      stall_detection_seconds: 120
+
+    compliance:
+      frameworks:
+        - nist-ai-rmf
+        - soc2
+        - iso-42001
+      pii_detection: false
+      data_residency: null
+
+    metadata:
+      template: "enterprise"
+      risk_level: "medium"
+      last_reviewed: "2026-06-01"

@@ -1,0 +1,52 @@
+# AgentMesh Policy Template: Customer Service / Contact Center
+# ────────────────────────────────────────────────────────────
+# Target: Salesforce, ServiceNow, Zendesk, Intercom, Amazon Connect,
+#         Google CCAI, any enterprise deploying customer-facing agents
+#
+# High volume, low per-call cost, strict PII handling.
+# Economy model by default — escalate only for complex cases.
+
+version: "1.0"
+policies:
+  - name: customer-service-production
+    applies_to:
+      teams: ["cx", "support", "product"]
+      agent_roles: ["tier-1", "tier-2", "escalation", "qa"]
+
+    budget:
+      daily_tokens: 20_000_000        # High volume contact center
+      monthly_usd: 15_000
+      per_run_tokens: 8_000           # Keep conversations concise
+      hard_stop: true
+
+    model_routing:
+      default: "claude-haiku-4-5"    # Economy for routine queries
+      upgrade_triggers:
+        - condition: "task_complexity > 0.75"
+          model: "claude-sonnet-4-6"
+      max_allowed: "claude-sonnet-4-6"
+
+    optimization:
+      semantic_cache: true
+      compression_threshold: 0.60     # Aggressive: keep responses crisp
+      context_pruning: true
+      cache_ttl_seconds: 900          # 15 min (support tickets are time-sensitive)
+
+    circuit_breaker:
+      max_iterations: 10              # CX agents must resolve in 10 turns
+      max_tool_calls: 20
+      stall_detection_seconds: 30     # Customer experience: fast or escalate
+
+    compliance:
+      frameworks:
+        - soc2
+        - nist-ai-rmf
+      pii_detection: true
+      data_residency: null
+
+    metadata:
+      template: "customer_service"
+      risk_level: "medium"
+      gdpr_compliant: true
+      ccpa_compliant: true
+      last_reviewed: "2026-06-01"

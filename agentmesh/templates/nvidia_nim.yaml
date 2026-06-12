@@ -1,0 +1,54 @@
+# AgentMesh Policy Template: NVIDIA NIM Deployments
+# ──────────────────────────────────────────────────
+# Target: Enterprises running agents on NVIDIA NIM (build.nvidia.com)
+#         or self-hosted NIM on DGX / HGX clusters.
+#
+# Optimized for: Llama 3.x, Mixtral, Nemotron models via NIM API.
+# Routing: prefers smaller models (8B) for routine tasks,
+#          escalates to 70B/405B for complex reasoning.
+
+version: "1.0"
+policies:
+  - name: nvidia-nim-production
+    applies_to:
+      teams: ["ml-platform", "engineering", "inference"]
+      agent_roles: ["orchestrator", "worker", "classifier"]
+
+    budget:
+      daily_tokens: 8_000_000
+      monthly_usd: 8_000
+      per_run_tokens: 100_000
+      hard_stop: true
+
+    model_routing:
+      default: "meta/llama-3.1-8b-instruct"   # $0.20/1M — cheapest NIM
+      upgrade_triggers:
+        - condition: "task_complexity > 0.75"
+          model: "meta/llama-3.1-70b-instruct"  # $0.99/1M
+        - condition: "requires_reasoning"
+          model: "nvidia/llama-3.1-nemotron-70b-instruct"
+      max_allowed: "meta/llama-3.1-70b-instruct"
+
+    optimization:
+      semantic_cache: true
+      compression_threshold: 0.75
+      context_pruning: true
+      cache_ttl_seconds: 3600
+
+    circuit_breaker:
+      max_iterations: 30
+      max_tool_calls: 60
+      stall_detection_seconds: 120
+
+    compliance:
+      frameworks:
+        - nist-ai-rmf
+        - soc2
+      pii_detection: false
+      data_residency: null
+
+    metadata:
+      template: "nvidia_nim"
+      provider: "nvidia-nim"
+      risk_level: "medium"
+      last_reviewed: "2026-06-01"

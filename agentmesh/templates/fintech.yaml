@@ -1,0 +1,61 @@
+# AgentMesh Policy Template: Fintech / Financial Services
+# ─────────────────────────────────────────────────────────
+# Target: Companies like Intuit (TurboTax, QuickBooks), Stripe, Square,
+#         Bloomberg, JPMorgan, Goldman Sachs, Fidelity
+#
+# Compliance: SOX Section 404, PCI-DSS v4, FINRA, EU AI Act, NIST AI RMF
+# Risk level: HIGH — financial data, regulatory scrutiny
+#
+# Usage:
+#   from agentmesh.templates import load_template
+#   policy = Policy.from_yaml(load_template("fintech"))
+
+version: "1.0"
+policies:
+  - name: fintech-production
+    applies_to:
+      teams: ["engineering", "data-science", "risk", "compliance"]
+      agent_roles: ["orchestrator", "analyst", "auditor", "advisor"]
+
+    budget:
+      daily_tokens: 2_000_000
+      monthly_usd: 5_000
+      per_run_tokens: 50_000
+      hard_stop: true                # SOX: budget overruns require CFO sign-off
+
+    model_routing:
+      default: "claude-haiku-4-5"
+      upgrade_triggers:
+        - condition: "task_complexity > 0.85"
+          model: "claude-sonnet-4-6"
+        - condition: "requires_reasoning"
+          model: "claude-sonnet-4-6"
+      max_allowed: "claude-sonnet-4-6"   # Opus never auto-selected in financial context
+
+    optimization:
+      semantic_cache: true
+      compression_threshold: 0.70
+      context_pruning: true
+      cache_ttl_seconds: 1800              # 30 min TTL (financial data freshness)
+
+    circuit_breaker:
+      max_iterations: 20
+      max_tool_calls: 40
+      stall_detection_seconds: 90
+
+    compliance:
+      frameworks:
+        - eu-ai-act
+        - nist-ai-rmf
+        - soc2
+        - iso-42001
+      pii_detection: true
+      data_residency: "us"                 # PCI-DSS: data must stay in-region
+
+    metadata:
+      template: "fintech"
+      risk_level: "high"
+      sox_compliant: true
+      pci_dss_compliant: true
+      last_reviewed: "2026-06-01"
+      reviewed_by: "compliance-team"
