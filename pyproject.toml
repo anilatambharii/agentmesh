@@ -4,19 +4,22 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentmesh"
-version = "0.1.0"
-description = "The governance plane for AI agents — policy, budget, and audit across every framework"
+version = "0.2.0"
+description = "The governance plane for AI agents — policy, budget, semantic cache, and audit across every framework"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Anil Prasad", email = "meetanilp@gmail.com" }]
 keywords = [
     "ai", "agents", "governance", "llm", "token-optimization",
     "budget-enforcement", "audit-trail", "langgraph", "crewai",
-    "multi-agent", "cost-control", "enterprise-ai"
+    "multi-agent", "cost-control", "enterprise-ai", "semantic-cache",
+    "compliance", "eu-ai-act", "hipaa", "soc2", "autogen", "nvidia-nim",
+    "policy-as-code", "circuit-breaker", "chargeback",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -24,6 +27,8 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Security",
+    "Topic :: System :: Monitoring",
 ]
 requires-python = ">=3.10"
 dependencies = [
@@ -41,6 +46,7 @@ otel = [
     "opentelemetry-sdk>=1.25",
     "opentelemetry-exporter-otlp-proto-grpc>=1.25",
 ]
+huggingface = ["gradio>=4.0"]
 all = [
     "agentmesh[langgraph,crewai,openai,compression,otel]",
 ]
@@ -52,20 +58,25 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
     "pre-commit>=3.7",
+    "rich>=13.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/anilatambharii/agentmesh"
-Documentation = "https://github.com/anilatambharii/agentmesh/wiki"
+Documentation = "https://github.com/anilatambharii/agentmesh/tree/main/docs"
 Repository = "https://github.com/anilatambharii/agentmesh"
 Issues = "https://github.com/anilatambharii/agentmesh/issues"
 Changelog = "https://github.com/anilatambharii/agentmesh/blob/main/CHANGELOG.md"
+"HuggingFace Space" = "https://huggingface.co/spaces/anilatambharii/agentmesh"
 
 [project.scripts]
 agentmesh = "agentmesh.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agentmesh"]
+
+[tool.hatch.build.targets.wheel.sources]
+"agentmesh" = "agentmesh"
 
 [tool.ruff]
 line-length = 100

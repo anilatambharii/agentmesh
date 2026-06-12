@@ -1,0 +1,50 @@
+# AgentMesh Policy Template: AI Research / Labs
+# ─────────────────────────────────────────────
+# Target: Anthropic, OpenAI, Google DeepMind, Meta AI, NVIDIA Research,
+#         university AI labs, enterprise research teams
+#
+# High autonomy with cost guardrails. Researchers need premium models
+# but runaway loops are common — circuit breaker is essential.
+
+version: "1.0"
+policies:
+  - name: research-lab
+    applies_to:
+      teams: ["research", "ml-platform", "ai-safety"]
+      agent_roles: ["researcher", "evaluator", "experiment-runner"]
+
+    budget:
+      daily_tokens: 10_000_000
+      monthly_usd: 25_000
+      per_run_tokens: 500_000          # Research agents need large context
+      hard_stop: true
+
+    model_routing:
+      default: "claude-sonnet-4-6"     # Default to better model for research
+      upgrade_triggers:
+        - condition: "requires_reasoning"
+          model: "claude-opus-4-8"
+      max_allowed: "claude-opus-4-8"   # Permit Opus for research
+
+    optimization:
+      semantic_cache: true
+      compression_threshold: 0.85      # Only compress when very close to limit
+      context_pruning: false           # Research: preserve full context
+      cache_ttl_seconds: 7200
+
+    circuit_breaker:
+      max_iterations: 100             # Research agents may need many steps
+      max_tool_calls: 200
+      stall_detection_seconds: 300    # 5 min stall tolerance for long computations
+
+    compliance:
+      frameworks:
+        - nist-ai-rmf
+        - eu-ai-act
+      pii_detection: false
+      data_residency: null
+
+    metadata:
+      template: "research"
+      risk_level: "low"
+      last_reviewed: "2026-06-01"
