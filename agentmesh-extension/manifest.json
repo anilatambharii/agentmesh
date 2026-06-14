@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "AgentMesh — AI Governance",
+  "version": "0.1.0",
+  "description": "Intercept AI prompts, enforce token quotas, cache responses. Works with Claude, ChatGPT, Gemini.",
+
+  "permissions": [
+    "declarativeNetRequest",
+    "storage",
+    "tabs",
+    "activeTab"
+  ],
+
+  "host_permissions": [
+    "https://api.anthropic.com/*",
+    "https://api.openai.com/*",
+    "https://claude.ai/*",
+    "https://chat.openai.com/*",
+    "https://chatgpt.com/*",
+    "https://gemini.google.com/*",
+    "http://localhost/*"
+  ],
+
+  "background": {
+    "service_worker": "background/service_worker.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://claude.ai/*",
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": ["content/interceptor.js"],
+      "css": ["content/styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "AgentMesh",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "api_redirect",
+        "enabled": true,
+        "path": "rules/redirect_rules.json"
+      }
+    ]
+  },
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

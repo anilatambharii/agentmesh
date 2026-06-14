@@ -1,0 +1,189 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  width: 250px;
+  background: #080e1a;
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  padding-bottom: 4px;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 13px 9px;
+}
+
+.logo {
+  font-weight: 700;
+  font-size: 14px;
+  color: #818cf8;
+  letter-spacing: 0.02em;
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 20px;
+  padding: 3px 9px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #334155;
+}
+.status-dot.online  { background: #22c55e; }
+.status-dot.offline { background: #ef4444; }
+
+/* ── Stats ──────────────────────────────────────────────────── */
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: #1e293b;
+  border-top: 1px solid #1e293b;
+  border-bottom: 1px solid #1e293b;
+}
+
+.stat {
+  background: #080e1a;
+  padding: 9px 10px;
+  text-align: center;
+}
+
+.stat-val {
+  font-size: 17px;
+  font-weight: 700;
+  color: #a5b4fc;
+  line-height: 1.2;
+}
+
+.stat-lbl {
+  font-size: 10px;
+  color: #475569;
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Separator ──────────────────────────────────────────────── */
+
+.sep {
+  border-top: 1px solid #0f172a;
+  margin: 2px 0;
+}
+
+/* ── Section title ──────────────────────────────────────────── */
+
+.section-title {
+  padding: 7px 13px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── Form ───────────────────────────────────────────────────── */
+
+.form {
+  padding: 0 13px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row label {
+  font-size: 11px;
+  color: #64748b;
+  width: 38px;
+  flex-shrink: 0;
+}
+
+.row input {
+  flex: 1;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: #e2e8f0;
+  font-size: 12px;
+  outline: none;
+}
+.row input:focus { border-color: #4f46e5; }
+
+/* ── Hint ───────────────────────────────────────────────────── */
+
+.hint {
+  padding: 4px 13px 6px;
+  font-size: 11px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.hint code {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  color: #818cf8;
+}
+
+/* ── Save button ────────────────────────────────────────────── */
+
+.btn-save {
+  display: block;
+  width: calc(100% - 26px);
+  margin: 4px 13px 6px;
+  padding: 8px;
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+.btn-save:hover   { background: #4338ca; }
+.btn-save.success { background: #16a34a; }
+
+/* ── Links ──────────────────────────────────────────────────── */
+
+.links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 13px 10px;
+  flex-wrap: wrap;
+}
+
+.links a {
+  font-size: 11px;
+  color: #6366f1;
+  text-decoration: none;
+}
+.links a:hover { text-decoration: underline; }
+
+.dot-sep { color: #334155; font-size: 10px; }

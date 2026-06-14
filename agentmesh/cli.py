@@ -1,5 +1,21 @@
 """
-AgentMesh CLI — command-line interface for governance management.
+AgentMesh CLI
+
+Usage:
+    agentmesh serve [options]     Start the governance proxy (port 8080)
+    agentmesh observe [options]   Start the SSE observability server (port 7861)
+    agentmesh status              Show running server status
+
+Examples:
+    # Demo mode (no real API keys needed)
+    agentmesh serve --demo
+
+    # Production: route across vendors, enforce quotas
+    agentmesh serve --port 8080 --vendors anthropic,openai,google
+
+    # Then point any tool at the proxy:
+    #   Claude Code:   export ANTHROPIC_BASE_URL=http://localhost:8080
+    #   OpenAI SDK:    export OPENAI_BASE_URL=http://localhost:8080/v1
 
 Usage:
     agentmesh validate policy.yaml
@@ -18,7 +34,7 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 
 def main() -> None:
@@ -85,8 +101,31 @@ Examples:
     compliance_report.add_argument("--output", help="Output file (default: stdout)")
     compliance_report.add_argument("--format", choices=["summary", "json"], default="summary")
 
-    # --- proxy ---
-    proxy_p = subparsers.add_parser("proxy", help="Start governance HTTP proxy")
+    # --- serve (new: OpenAI-compatible governance proxy) ---
+    serve_p = subparsers.add_parser("serve", help="Start the OpenAI-compatible governance proxy")
+    serve_p.add_argument("--port",       type=int,   default=8080,  help="Proxy port (default: 8080)")
+    serve_p.add_argument("--obs-port",   type=int,   default=7861,  help="Observability SSE port (default: 7861)")
+    serve_p.add_argument("--vendors",    type=str,   default="anthropic", help="Comma-separated: anthropic,openai,google")
+    serve_p.add_argument("--routing-strategy", type=str, default="cheapest_capable")
+    serve_p.add_argument("--demo",       action="store_true", help="Mock LLM calls (no real API keys needed)")
+    serve_p.add_argument("--no-cache",   action="store_true")
+    serve_p.add_argument("--no-compress",action="store_true")
+    serve_p.add_argument("--require-approval", action="store_true", help="Preview prompt before sending")
+    serve_p.add_argument("--quota-warn",      type=float, default=0.80)
+    serve_p.add_argument("--quota-hard-stop", type=float, default=1.00)
+    serve_p.add_argument("--global-tokens",   type=int,   default=10_000_000)
+    serve_p.add_argument("--team-quotas",     type=str,   default="", help="engineering=1000000,payments=500000")
+    serve_p.add_argument("--log-level",       type=str,   default="warning")
+
+    # --- observe ---
+    obs_p = subparsers.add_parser("observe", help="Start the SSE observability server only")
+    obs_p.add_argument("--port", type=int, default=7861)
+
+    # --- status ---
+    subparsers.add_parser("status", help="Check running server status")
+
+    # --- proxy (legacy) ---
+    proxy_p = subparsers.add_parser("proxy", help="Start governance HTTP proxy (legacy alias for serve)")
     proxy_p.add_argument("--port", type=int, default=8080, help="Proxy port (default: 8080)")
     proxy_p.add_argument("--upstream", default="https://api.anthropic.com", help="Upstream LLM API")
     proxy_p.add_argument("--policy", help="Policy YAML file")
@@ -106,13 +145,16 @@ Examples:
         return
 
     handlers = {
-        "validate": cmd_validate,
-        "audit": cmd_audit,
-        "budget": cmd_budget,
+        "validate":  cmd_validate,
+        "audit":     cmd_audit,
+        "budget":    cmd_budget,
         "compliance": cmd_compliance,
-        "proxy": cmd_proxy,
+        "proxy":     cmd_proxy,
         "benchmark": cmd_benchmark,
-        "version": cmd_version,
+        "version":   cmd_version,
+        "serve":     cmd_serve,
+        "observe":   cmd_observe,
+        "status":    cmd_status,
     }
 
     handler = handlers.get(args.command)
@@ -279,22 +321,22 @@ def _compliance_report(args: argparse.Namespace) -> None:
 
 
 def cmd_proxy(args: argparse.Namespace) -> None:
-    from agentmesh.proxy.server import AgentMeshProxy
-    from agentmesh.policy.engine import Policy
-
-    policy = None
-    if args.policy:
-        policy = Policy.from_yaml(Path(args.policy).read_text())
-
-    proxy = AgentMeshProxy(policy=policy, port=args.port, upstream=args.upstream)
-    _info(f"Starting AgentMesh proxy on port {args.port} → {args.upstream}")
-    _info("Point your LLM client at: http://localhost:{args.port}")
-    _info("Press Ctrl+C to stop.")
-    try:
-        proxy.start(blocking=True)
-    except KeyboardInterrupt:
-        proxy.stop()
-        _info("Proxy stopped.")
+    _info("'proxy' is a legacy alias for 'serve'. Launching with defaults...")
+    class _FakeServeArgs:
+        port = args.port
+        obs_port = 7861
+        vendors = "anthropic"
+        routing_strategy = "cheapest_capable"
+        demo = False
+        no_cache = False
+        no_compress = False
+        require_approval = False
+        quota_warn = 0.80
+        quota_hard_stop = 1.00
+        global_tokens = 10_000_000
+        team_quotas = ""
+        log_level = "warning"
+    cmd_serve(_FakeServeArgs())
 
 
 def cmd_benchmark(args: argparse.Namespace) -> None:
@@ -322,6 +364,129 @@ def cmd_benchmark(args: argparse.Namespace) -> None:
     _info("  Combined typical:     60–75%  cost reduction")
     _info("")
     _info("Run 'python examples/demo.py' for an interactive cost demo.")
+
+
+def cmd_serve(args: argparse.Namespace) -> None:
+    """Start the OpenAI-compatible governance proxy + SSE observability server."""
+    from agentmesh.proxy.server import ProxyConfig, build_proxy_app
+    from agentmesh.server import start_server
+
+    try:
+        import uvicorn
+    except ImportError:
+        _error("uvicorn not installed. Run: pip install uvicorn")
+        sys.exit(1)
+
+    vendors = [v.strip() for v in getattr(args, "vendors", "anthropic").split(",") if v.strip()]
+    team_quotas: Dict[str, int] = {}
+    raw_tq = getattr(args, "team_quotas", "") or ""
+    for pair in raw_tq.split(","):
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            try:
+                team_quotas[k.strip()] = int(v.strip())
+            except ValueError:
+                pass
+
+    config = ProxyConfig(
+        vendors=vendors,
+        routing_strategy=getattr(args, "routing_strategy", "cheapest_capable"),
+        demo_mode=getattr(args, "demo", False),
+        enable_cache=not getattr(args, "no_cache", False),
+        enable_compression=not getattr(args, "no_compress", False),
+        require_approval=getattr(args, "require_approval", False),
+        quota_warn_pct=getattr(args, "quota_warn", 0.80),
+        quota_hard_stop_pct=getattr(args, "quota_hard_stop", 1.00),
+        global_monthly_tokens=getattr(args, "global_tokens", 10_000_000),
+        team_monthly_tokens=team_quotas,
+        port=getattr(args, "port", 8080),
+        log_level=getattr(args, "log_level", "warning"),
+    )
+
+    obs_port = getattr(args, "obs_port", 7861)
+    _print_banner(config.port, obs_port, config.demo_mode, vendors)
+
+    # Start SSE observability server on a daemon thread
+    try:
+        start_server(port=obs_port)
+        _ok(f"Observability SSE server running on http://localhost:{obs_port}")
+    except Exception as exc:
+        _warn(f"Could not start observability server: {exc}")
+
+    _info(f"Starting governance proxy on http://localhost:{config.port} ...")
+    _info("Press Ctrl+C to stop.\n")
+    try:
+        uvicorn.run(
+            build_proxy_app(config),
+            host="0.0.0.0",
+            port=config.port,
+            log_level=config.log_level,
+        )
+    except KeyboardInterrupt:
+        _info("Proxy stopped.")
+
+
+def cmd_observe(args: argparse.Namespace) -> None:
+    """Start only the SSE observability server (no proxy)."""
+    from agentmesh.server import start_server
+    try:
+        import uvicorn
+    except ImportError:
+        _error("uvicorn not installed. Run: pip install uvicorn")
+        sys.exit(1)
+
+    port = getattr(args, "port", 7861)
+    _info(f"Starting AgentMesh observability server on http://localhost:{port}")
+    _info("SSE stream: http://localhost:{port}/stream")
+    _info("Press Ctrl+C to stop.\n")
+    from agentmesh.server import get_app
+    app = get_app(None)
+
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    except KeyboardInterrupt:
+        _info("Observability server stopped.")
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    """Check whether the proxy and observability servers are running."""
+    try:
+        import urllib.request
+        import urllib.error
+    except ImportError:
+        _error("urllib not available")
+        return
+
+    _info("AgentMesh server status\n")
+    for label, url in [
+        ("Proxy         (8080)", "http://localhost:8080/health"),
+        ("Observability (7861)", "http://localhost:7861/health"),
+        ("Dashboard     (7860)", "http://localhost:7860/"),
+    ]:
+        try:
+            with urllib.request.urlopen(url, timeout=2) as r:
+                _ok(f"{label} — running  [{r.status}]")
+        except Exception:
+            _info(f"  ✗ {label} — not running")
+
+
+def _print_banner(proxy_port: int, obs_port: int, demo: bool, vendors: list) -> None:
+    mode = "DEMO (mock responses)" if demo else "PRODUCTION"
+    sep = "=" * 60
+    print(f"""
+{sep}
+  AgentMesh Governance Proxy
+{sep}
+  Mode:          {mode}
+  Proxy:         http://localhost:{proxy_port}
+  Observability: http://localhost:{obs_port}
+  Vendors:       {', '.join(vendors)}
+{sep}
+  Point any AI tool at the proxy:
+    Claude Code:  set ANTHROPIC_BASE_URL=http://localhost:{proxy_port}
+    OpenAI SDK:   set OPENAI_BASE_URL=http://localhost:{proxy_port}/v1
+{sep}
+""")
 
 
 # ---------------------------------------------------------------------------

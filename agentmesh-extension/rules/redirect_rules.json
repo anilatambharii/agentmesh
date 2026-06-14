@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "scheme": "http",
+          "host": "localhost",
+          "port": "8080"
+        }
+      }
+    },
+    "condition": {
+      "urlFilter": "||api.anthropic.com/",
+      "resourceTypes": ["xmlhttprequest"]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "scheme": "http",
+          "host": "localhost",
+          "port": "8080"
+        }
+      }
+    },
+    "condition": {
+      "urlFilter": "||api.openai.com/",
+      "resourceTypes": ["xmlhttprequest"]
+    }
+  }
+]

@@ -23,11 +23,12 @@ from __future__ import annotations
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from agentmesh import AgentMesh
 from agentmesh.attribution.chargebacks import CostAttributor
 from agentmesh.compliance.reporter import ComplianceReporter
+from agentmesh.events.bus import get_bus, GovernanceEvent
 from agentmesh.policy.engine import Policy
 from agentmesh.templates import load_template
 
@@ -131,12 +132,13 @@ STEPS_PER_TASK = {
 
 @dataclass
 class SimEvent:
-    kind: str               # "step" | "cache_hit" | "model_route" | "budget" | "circuit" | "complete" | "error"
+    kind: str               # "step"|"cache_hit"|"model_route"|"budget"|"circuit"|"complete"|"error"|"quota_warn"|"quota_block"|"escalation"|"vendor_route"
     task_id: str = ""
     task_title: str = ""
     step: str = ""
     message: str = ""
     model: str = ""
+    vendor: str = ""
     tokens_in: int = 0
     tokens_out: int = 0
     cost_usd: float = 0.0
@@ -149,6 +151,11 @@ class SimEvent:
     total_cost: float = 0.0
     budget_pct: float = 1.0
     audit_entries: int = 0
+    # Quota fields
+    quota_used: int = 0
+    quota_limit: int = 0
+    quota_pct: float = 0.0
+    escalation_id: str = ""
     timestamp: float = field(default_factory=time.time)
     data: Dict[str, Any] = field(default_factory=dict)
 
@@ -202,6 +209,9 @@ def run_scenario(
     scenario: str = "code-review",
     template: str = "enterprise",
     trip_circuit_breaker: bool = False,
+    enable_quota: bool = True,
+    trip_quota: bool = False,
+    vendors: Optional[List[str]] = None,
 ) -> Generator[SimEvent, None, None]:
     """
     Run a simulated enterprise agentic workflow with AgentMesh governance.
@@ -212,8 +222,15 @@ def run_scenario(
     Args:
         scenario: "code-review" | "customer-service" | "research"
         template: policy template name — "enterprise", "fintech", "healthcare", "research"
-        trip_circuit_breaker: if True, runs enough iterations to trip the breaker
+        trip_circuit_breaker: if True, runs enough iterations to trip the circuit breaker
+        enable_quota: if True, attach quota enforcement (demo team budgets)
+        trip_quota: if True, set tight quota so one team gets blocked (triggers escalation)
+        vendors: list of vendors for multi-vendor routing demo e.g. ["anthropic","openai","google"]
     """
+    from agentmesh.quota.engine import QuotaPolicy, QuotaEnforcer, QuotaIdentity, QuotaStatus
+    from agentmesh.quota.escalation import EscalationManager
+    from agentmesh.optimizer.multi_vendor import MultiVendorRouter
+
     policy_yaml = load_template(template)
     policy = Policy.from_yaml(policy_yaml)
 
@@ -236,7 +253,7 @@ def run_scenario(
         },
         "optimization": {
             "semantic_cache": True,
-            "compression_threshold": 0.50,  # low threshold → compression fires visibly
+            "compression_threshold": 0.50,
             "context_pruning": True,
             "cache_ttl_seconds": 3600,
         },
@@ -250,6 +267,58 @@ def run_scenario(
             "pii_detection": False,
         },
     })
+
+    # ── Quota setup ───────────────────────────────────────────────────────
+    quota_policy = None
+    quota_enforcer = None
+    escalation_mgr = None
+    if enable_quota:
+        # Demo quotas: payments team is tight (will trigger warning/block if trip_quota)
+        payments_limit = 500 if trip_quota else 200_000
+        quota_policy = QuotaPolicy(
+            global_monthly_tokens=5_000_000,
+            team_monthly_tokens={
+                "engineering": 1_000_000,
+                "payments":    payments_limit,
+                "backend":     500_000,
+                "security":    300_000,
+                "growth":      200_000,
+                "cx":          400_000,
+                "ml-research": 800_000,
+            },
+            tool_monthly_tokens={
+                "vscode-copilot":  500_000,
+                "github-ci":       200_000,
+                "teams-bot":       300_000,
+                "excel-ai":        100_000,
+            },
+            warn_at_pct=0.70,
+            hard_stop_at_pct=1.00,
+            auto_escalate=True,
+            temp_grant_tokens=50_000,
+        )
+        quota_enforcer = QuotaEnforcer(quota_policy)
+        escalation_mgr = EscalationManager(
+            enforcer=quota_enforcer,
+            auto_temp_grant=True,
+        )
+        # Pre-seed realistic usage so quota warnings/blocks fire in demo
+        if trip_quota:
+            # Payments team is already at the limit (simulate prior usage this month)
+            quota_enforcer.store.set("team", "payments", "monthly", 501)
+        else:
+            # Normal scenario: pre-seed some usage so warnings fire at 70%+
+            quota_enforcer.store.set("team", "engineering", "monthly", 720_000)  # 72%
+            quota_enforcer.store.set("team", "security",    "monthly", 225_000)  # 75%
+
+    # ── Multi-vendor router ───────────────────────────────────────────────
+    mv_router = None
+    active_vendors = vendors or ["anthropic"]
+    if len(active_vendors) > 1:
+        mv_router = MultiVendorRouter(
+            vendors=active_vendors,
+            routing_strategy="cheapest_capable",
+        )
 
     mesh = AgentMesh(policy=demo_policy)
     attributor = CostAttributor()
@@ -301,6 +370,111 @@ def run_scenario(
             # ── Pre-call governance ──────────────────────────────────────────
             from agentmesh.budget.enforcer import BudgetExceededError
             from agentmesh.optimizer.circuit_breaker import CircuitBreakerError
+            from agentmesh.quota.engine import QuotaIdentity, QuotaStatus, QuotaExceededError
+
+            # ── Quota check ──────────────────────────────────────────────────
+            # Determine which tool this "call" is coming from (simulate variety)
+            tool_for_step = {
+                "understand_diff": "vscode-copilot",
+                "analyze_code":    "github-ci",
+                "security_scan":   "github-ci",
+                "generate_report": "teams-bot",
+            }.get(step_name, "unknown")
+
+            identity = QuotaIdentity(
+                user=f"dev-{team}@company.com",
+                team=team,
+                project=project,
+                tool=tool_for_step,
+            )
+
+            if quota_enforcer:
+                q_result = quota_enforcer.check(identity)
+                if q_result.status == QuotaStatus.BLOCK:
+                    # Auto-escalate and yield escalation event
+                    esc_req = None
+                    if escalation_mgr:
+                        esc_req = escalation_mgr.request(
+                            identity=identity,
+                            quota_result=q_result,
+                            requested_tokens=500_000,
+                            reason=f"Sprint quota exhausted for team {team} on tool {tool_for_step}",
+                            priority="high",
+                        )
+                    _esc_id = esc_req.id if esc_req else ""
+                    get_bus().emit(GovernanceEvent(
+                        kind="quota_block", team=team, user=identity.user, tool=tool_for_step,
+                        quota_pct=q_result.pct_used, quota_used=q_result.used_tokens,
+                        quota_limit=q_result.limit_tokens, escalation_id=_esc_id,
+                        message=q_result.message,
+                    ))
+                    if _esc_id:
+                        get_bus().emit(GovernanceEvent(
+                            kind="escalation", team=team, user=identity.user, tool=tool_for_step,
+                            escalation_id=_esc_id, quota_pct=q_result.pct_used,
+                            message=f"Auto-filed {_esc_id} — temp grant applied",
+                        ))
+                    yield SimEvent(
+                        kind="escalation",
+                        task_id=task_id, task_title=task_title, step=step_name,
+                        message=f"Quota BLOCKED: {q_result.message} — escalation filed",
+                        quota_used=q_result.used_tokens, quota_limit=q_result.limit_tokens,
+                        quota_pct=q_result.pct_used,
+                        escalation_id=_esc_id,
+                        iteration=global_iteration,
+                        total_tokens=mesh.budget.tokens_used, total_cost=mesh.budget.cost_usd,
+                        budget_pct=mesh.budget.remaining_ratio(), audit_entries=len(mesh.audit.entries),
+                    )
+                    # Temporary grant applied by escalation_mgr — continue after warning
+                elif q_result.status == QuotaStatus.WARN:
+                    get_bus().emit(GovernanceEvent(
+                        kind="quota_warn", team=team, user=identity.user, tool=tool_for_step,
+                        quota_pct=q_result.pct_used, quota_used=q_result.used_tokens,
+                        quota_limit=q_result.limit_tokens, message=q_result.message,
+                    ))
+                    yield SimEvent(
+                        kind="quota_warn",
+                        task_id=task_id, task_title=task_title, step=step_name,
+                        message=q_result.message,
+                        quota_used=q_result.used_tokens, quota_limit=q_result.limit_tokens,
+                        quota_pct=q_result.pct_used,
+                        iteration=global_iteration,
+                        total_tokens=mesh.budget.tokens_used, total_cost=mesh.budget.cost_usd,
+                        budget_pct=mesh.budget.remaining_ratio(), audit_entries=len(mesh.audit.entries),
+                    )
+
+            # ── Multi-vendor routing ──────────────────────────────────────────
+            vendor_decision = None
+            selected_vendor = "anthropic"
+            if mv_router:
+                user_msg_for_routing = next(
+                    (m["content"] for m in reversed(kwargs.get("messages", [])) if m.get("role") == "user"), ""
+                )
+                vendor_decision = mv_router.route(user_msg_for_routing)
+                selected_vendor = vendor_decision.vendor
+                kwargs["model"] = vendor_decision.model
+                if vendor_decision.vendor != "anthropic":
+                    get_bus().emit(GovernanceEvent(
+                        kind="vendor_route", team=team, tool=tool_for_step,
+                        vendor=vendor_decision.vendor, model=vendor_decision.model,
+                        complexity_score=vendor_decision.complexity_score,
+                        cost_usd=vendor_decision.estimated_cost,
+                        message=f"{vendor_decision.tier.value} | score={vendor_decision.complexity_score:.2f} | est=${vendor_decision.estimated_cost:.5f}",
+                    ))
+                    yield SimEvent(
+                        kind="vendor_route",
+                        task_id=task_id, task_title=task_title, step=step_name,
+                        vendor=vendor_decision.vendor,
+                        model=vendor_decision.model,
+                        message=(
+                            f"Vendor: {vendor_decision.vendor} | Model: {vendor_decision.model} | "
+                            f"Tier: {vendor_decision.tier.value} | Score: {vendor_decision.complexity_score:.2f} | "
+                            f"Est: ${vendor_decision.estimated_cost:.5f}"
+                        ),
+                        iteration=global_iteration,
+                        total_tokens=mesh.budget.tokens_used, total_cost=mesh.budget.cost_usd,
+                        budget_pct=mesh.budget.remaining_ratio(), audit_entries=len(mesh.audit.entries),
+                    )
 
             try:
                 mesh.circuit_breaker.check()
@@ -349,6 +523,17 @@ def run_scenario(
                 cached_response = mesh.cache.get(cache_key)
                 if cached_response is not None:
                     cache_hit = True
+                    get_bus().emit(GovernanceEvent(
+                        kind="cache_hit", team=team, tool=tool_for_step,
+                        model=kwargs.get("model", ""), cache_layer="semantic",
+                        similarity=cache_sim,
+                        message=f"similarity={cache_sim:.3f} | 0 tokens burned",
+                    ))
+                else:
+                    get_bus().emit(GovernanceEvent(
+                        kind="cache_miss", team=team, tool=tool_for_step,
+                        model=kwargs.get("model", ""), cache_layer="miss",
+                    ))
 
             # ── Model routing ────────────────────────────────────────────────
             if mesh.router:
@@ -407,6 +592,14 @@ def run_scenario(
                 tokens_out = response.usage.output_tokens
                 cost_this_call = (tokens_in / 1_000_000) * _model_cost(kwargs["model"])
 
+                # Emit LLM call event to real-time bus
+                get_bus().emit(GovernanceEvent(
+                    kind="llm_call", team=team, user=identity.user, tool=tool_for_step,
+                    model=kwargs["model"], vendor=selected_vendor,
+                    tokens_used=tokens_in + tokens_out, cost_usd=cost_this_call,
+                    message=f"{tokens_in}in + {tokens_out}out = {tokens_in + tokens_out} tokens | ${cost_this_call:.5f}",
+                ))
+
                 # Post-call governance
                 mesh.budget.record_usage(response)
 
@@ -421,6 +614,10 @@ def run_scenario(
 
             mesh.audit.record_result(response)
             mesh.circuit_breaker.increment()
+
+            # ── Deduct from quota ─────────────────────────────────────────────
+            if quota_enforcer and tokens_in + tokens_out > 0:
+                quota_enforcer.consume(identity, tokens_in + tokens_out)
 
             # ── Record attribution ────────────────────────────────────────────
             attributor.record(
@@ -460,6 +657,28 @@ def run_scenario(
     reporter = ComplianceReporter(mesh=mesh)
     compliance = reporter.generate(framework="eu-ai-act")
 
+    # Quota snapshot
+    quota_snapshot = []
+    if quota_enforcer and quota_policy:
+        for team_name, limit in quota_policy.team_monthly_tokens.items():
+            used = quota_enforcer.store.get("team", team_name, "monthly")
+            quota_snapshot.append({
+                "dimension": "team", "key": team_name,
+                "used": used, "limit": limit,
+                "pct_used": round(used / limit, 4) if limit else 0,
+                "remaining": max(0, limit - used),
+            })
+
+    # Vendor comparison table
+    vendor_comparison = []
+    if mv_router:
+        vendor_comparison = mv_router.cost_comparison(input_tokens=1000, output_tokens=300)
+    else:
+        from agentmesh.optimizer.multi_vendor import MultiVendorRouter as MVR
+        vendor_comparison = MVR(vendors=["anthropic", "openai", "google"]).cost_comparison(
+            input_tokens=1000, output_tokens=300
+        )
+
     yield SimEvent(
         kind="complete",
         message="Scenario complete",
@@ -489,6 +708,10 @@ def run_scenario(
                 "tool_calls": mesh.circuit_breaker.tool_call_count,
                 "tripped": False,
             },
+            "quota_snapshot": quota_snapshot,
+            "escalations": escalation_mgr.summary() if escalation_mgr else {"total": 0, "pending": 0, "requests": []},
+            "vendor_comparison": vendor_comparison,
+            "active_vendors": active_vendors,
         },
     )
 
