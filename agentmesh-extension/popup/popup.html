@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentMesh</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <span class="logo">&#x2B21; AgentMesh</span>
+    <div class="status-pill" id="status-pill">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-label">...</span>
+    </div>
+  </div>
+
+  <!-- Stats grid -->
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-val" id="s-intercepted">0</div>
+      <div class="stat-lbl">Prompts</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" id="s-hits">0</div>
+      <div class="stat-lbl">Cache Hits</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" id="s-tokens">0</div>
+      <div class="stat-lbl">Tokens Saved</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" id="s-cost">$0.000</div>
+      <div class="stat-lbl">Cost Saved</div>
+    </div>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- Identity settings -->
+  <div class="section-title">Identity (sent with every request)</div>
+  <div class="form">
+    <div class="row">
+      <label>Team</label>
+      <input id="f-team" type="text" placeholder="engineering" autocomplete="off">
+    </div>
+    <div class="row">
+      <label>User</label>
+      <input id="f-user" type="email" placeholder="you@company.com" autocomplete="off">
+    </div>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- Proxy settings -->
+  <div class="section-title">Proxy</div>
+  <div class="form">
+    <div class="row">
+      <label>Port</label>
+      <input id="f-port" type="number" value="8080" min="1024" max="65535" style="max-width:70px">
+    </div>
+  </div>
+
+  <div class="hint" id="port-hint">
+    Redirect rules updated on save. Run:<br>
+    <code>agentmesh serve --demo</code>
+  </div>
+
+  <button id="btn-save" class="btn-save">Save settings</button>
+
+  <div class="sep"></div>
+
+  <!-- Links -->
+  <div class="links">
+    <a href="http://localhost:7860" target="_blank">Dashboard</a>
+    <span class="dot-sep">&bull;</span>
+    <a href="http://localhost:8080/health" target="_blank">Proxy health</a>
+    <span class="dot-sep">&bull;</span>
+    <a href="http://localhost:7861/stream" target="_blank">Event stream</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

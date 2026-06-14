@@ -1,94 +1,160 @@
-# AgentMesh 🕸️
+# AgentMesh
 
-**The governance plane for AI agents — policy, budget, and audit across every framework.**
+**The governance proxy for every AI tool your team uses.**
 
-> *"Istio for AI agents. Every framework. Every cloud. Every model."*
+> *"Istio for AI — intercept, cache, and govern every LLM call across Claude Code, VS Code Copilot, ChatGPT, Gemini, and your own agents. One proxy, one policy, one bill."*
 
 [![CI](https://github.com/anilatambharii/agentmesh/actions/workflows/ci.yml/badge.svg)](https://github.com/anilatambharii/agentmesh/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/anilatambharii/agentmesh/actions/workflows/codeql.yml/badge.svg)](https://github.com/anilatambharii/agentmesh/actions/workflows/codeql.yml)
 [![PyPI version](https://badge.fury.io/py/agentmesh.svg)](https://badge.fury.io/py/agentmesh)
 [![PyPI Downloads](https://static.pepy.tech/badge/agentmesh)](https://pepy.tech/project/agentmesh)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![HuggingFace Space](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Space-yellow)](https://huggingface.co/spaces/anilatambharii/agentmesh)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Community-7289DA)](https://discord.gg/agentmesh)
 
 ---
 
-<!-- Demo GIF — 20-step agent: $3,200/mo → $960/mo in real time -->
-![AgentMesh demo — 70% cost reduction in real time](docs/demo.gif)
-
-> **See it live:** `pip install agentmesh rich && python examples/demo.py`  
-> **Interactive Calculator:** [huggingface.co/spaces/anilatambharii/agentmesh](https://huggingface.co/spaces/anilatambharii/agentmesh)
+![AgentMesh demo — 85% cache hit rate, 75% cost reduction](docs/demo.gif)
 
 ---
 
-## The $47,000 Problem
+## What it does
 
-Enterprise AI costs don't scale linearly. They explode:
+AgentMesh sits between your engineers and every LLM API. It enforces token budgets, semantically caches repeated prompts, and routes calls to the cheapest capable model — without touching a single line of agent code.
 
-- **Uber** burned their entire 2026 AI budget in **4 months** — now capping spend at $1,500/employee/month
-- **Amazon** shut down their internal AI leaderboard after "tokenmaxxing" — employees ran agent loops to inflate scores with zero productive output
-- A single recursive multi-agent loop can generate a **$47,000 API bill** before anyone notices
-- Only **38%** of enterprises have end-to-end AI agent cost monitoring (Cloud Security Alliance, 2026)
-- **Gartner**: 40% of agentic AI projects cancelled by 2027 due to cost overruns
+```
+Claude Code / VS Code Copilot / Cursor
+ChatGPT web / Claude.ai / Gemini web          ──►  AgentMesh Proxy  ──►  Anthropic
+Your LangGraph / CrewAI / AutoGen agents                                   OpenAI
+                                                                           Google
+```
 
-The root cause is architectural: **no framework enforces token budgets, governance policies, or audit trails across heterogeneous agent deployments.** LangGraph, CrewAI, OpenAI Agents, AutoGen — each is an island with no shared governance plane.
-
-**AgentMesh is that governance plane.**
-
----
-
-## What AgentMesh Does
-
-AgentMesh is a **framework-agnostic sidecar** that intercepts every LLM call — across all your frameworks, all your clouds, all your models — and enforces:
-
-| Capability | What It Prevents |
-|---|---|
-| **Token Budget Enforcement** | $47K surprise bills; team budget overruns |
-| **Dynamic Model Routing** | Paying Opus rates for Haiku-level tasks |
-| **Semantic Caching** | Burning tokens on near-identical repeated queries |
-| **Circuit Breaker** | Runaway ReAct loops and recursive agent calls |
-| **Tamper-Evident Audit Trail** | Non-compliance with EU AI Act, HIPAA, SOC 2 |
-| **Policy-as-Code** | Ad-hoc governance that fails at scale |
-| **Cost Attribution** | "Who spent $50K this month?" going unanswered |
-| **Compliance Reports** | Manual audit prep taking weeks instead of minutes |
+**It catches everything** — not just the agents you wrote, but also the AI tools your engineers use every day in their browsers.
 
 ---
 
-## Proven Results
+## Benchmark — real numbers, demo mode, no API keys needed
 
-> A 50-engineer team's three-step code review agent cost **$8,400/month**.  
-> After AgentMesh: **$840/month — a 90% reduction.** Quality delta: -2.1%.
+```bash
+pip install agentmesh sentence-transformers
+python examples/benchmark.py
+```
 
-| Optimization | Typical Savings |
-|---|---|
-| Semantic caching (repeated queries) | 10–30% |
-| Dynamic model routing (haiku vs. sonnet) | 20–40% |
-| Prompt compression (O(n²) context growth) | 10–25% |
-| Circuit breaker (runaway loop prevention) | **100%** of loop costs |
-| Combined (typical enterprise workload) | **60–75%** total |
+20 requests across 5 topic clusters, each cluster with 4 phrasings (persona prefix, markdown, British spelling, plain):
+
+```
+Total requests          20
+Exact cache hits         2  (10%)
+Semantic cache hits     15  (75%)
+Total misses             3  (15%)
+
+Cost WITHOUT AgentMesh  $0.0030  ($3/M token baseline)
+Cost WITH AgentMesh     $0.0008
+Savings                 $0.0023  (75%)
+Effective cost/request  $0.00004
+```
+
+**85% of requests never reached the LLM.** The 3 misses are the cold-start first call per cluster.
 
 ---
 
-## Quickstart
+## The problem it solves
+
+- **Uber** burned through their entire 2026 AI budget in 4 months
+- **Amazon** shut down an internal AI leaderboard because engineers ran pointless loops to inflate scores ("tokenmaxxing")
+- A single recursive agent loop, undetected, can generate a **$47,000 API bill**
+- Only **38%** of enterprises have end-to-end AI cost monitoring (Cloud Security Alliance, 2026)
+
+The root cause: every AI tool — Claude Code, GitHub Copilot, ChatGPT, your custom agents — talks to LLM APIs independently, with no shared governance layer. **AgentMesh is that layer.**
+
+---
+
+## Three ways to use it
+
+### 1. Proxy mode — zero code changes, covers everything
 
 ```bash
 pip install agentmesh
+agentmesh serve --port 8080 --demo
 ```
+
+Point any tool at `localhost:8080`:
+
+```bash
+# Claude Code
+export ANTHROPIC_BASE_URL=http://localhost:8080
+
+# VS Code Copilot / Cursor / any OpenAI SDK tool
+export OPENAI_BASE_URL=http://localhost:8080/v1
+
+# curl test
+curl http://localhost:8080/v1/messages \
+  -H "x-api-key: any" \
+  -H "X-AgentMesh-Team: engineering" \
+  -d '{"model":"claude-haiku-4-5","max_tokens":512,"messages":[{"role":"user","content":"Review this code..."}]}'
+```
+
+Every response includes governance headers:
+
+```
+X-AgentMesh-Cache:     hit          # exact | semantic | miss
+X-AgentMesh-Tokens:    0            # 0 on cache hit
+X-AgentMesh-Cost-USD:  0.000000     # $0 on cache hit
+X-AgentMesh-Quota-Pct: 23%          # team budget consumed
+X-AgentMesh-Vendor:    anthropic
+X-AgentMesh-Model:     claude-haiku-4-5
+```
+
+### 2. Chrome Extension — governance for ChatGPT, Claude.ai, Gemini
+
+The extension intercepts prompts typed into web AI tools before they hit the LLM. It shows a governance overlay on every submission, checks the semantic cache, and displays per-session savings in a popup.
+
+**Load the extension:**
+
+1. Clone this repo: `git clone https://github.com/anilatambharii/agentmesh`
+2. Generate icons: `cd agentmesh-extension && python generate_icons.py`
+3. Open `chrome://extensions` → Enable Developer Mode → Load Unpacked → select `agentmesh-extension/`
+4. Click the AgentMesh popup → set Port to match your running proxy
+
+**What it catches:**
+- `chat.openai.com` / `chatgpt.com` — content script intercepts input box
+- `claude.ai` — content script intercepts input box
+- `gemini.google.com` — content script intercepts input box
+- `api.anthropic.com` / `api.openai.com` — declarativeNetRequest silently redirects API calls
+
+**How the overlay works:**
+
+```
+  ┌─────────────────────────────────────────┐
+  │  AgentMesh Governance                   │
+  │                                         │
+  │  [●] Cache HIT — saved 847 tokens       │
+  │  Team: engineering   Quota: 23%         │
+  │                                         │
+  │  [Send original]  [Cancel]              │
+  └─────────────────────────────────────────┘
+```
+
+**Popup stats (persist across Chrome restarts):**
+
+```
+AgentMesh Connected
+3  Prompts
+2  Cache Hits
+87 Tokens Saved
+$0.002 Cost Saved
+```
+
+### 3. SDK mode — wrap existing agents
 
 ```python
 from agentmesh import AgentMesh
 from agentmesh.policy.engine import Policy
 
-# Define governance policy (or use a built-in template)
 policy = Policy.from_yaml("""
 policies:
   - name: engineering-team
     budget:
       daily_tokens: 1_000_000
       monthly_usd: 3_000
-      per_run_tokens: 50_000
       hard_stop: true
     circuit_breaker:
       max_iterations: 25
@@ -98,345 +164,215 @@ policies:
 
 mesh = AgentMesh(policy=policy)
 
-# Wrap your existing agent — ZERO changes to the agent itself
-governed_graph  = mesh.wrap_langgraph(your_langgraph_graph)
-governed_crew   = mesh.wrap_crewai(your_crew)
-governed_agent  = mesh.wrap_openai_agent(your_openai_agent)
-governed_autogen = mesh.wrap_autogen(your_autogen_agent)
-
-# Run it — governance is transparent
-result = governed_graph.invoke({"messages": [...]})
-
-# Inspect governance stats
-print(mesh.stats)
-# {
-#   'tokens_used': 14_823,
-#   'cost_usd': 0.044,
-#   'iterations': 7,
-#   'model_downgrades': 5,
-#   'cache': {'hits': 3, 'misses': 4, 'hit_rate': 0.429, 'tokens_saved': 6200}
-# }
+# Zero changes to agent code
+governed_graph = mesh.wrap_langgraph(your_langgraph_graph)
+governed_crew  = mesh.wrap_crewai(your_crew)
+governed_agent = mesh.wrap_openai_agent(your_openai_agent)
 ```
 
-**Use a built-in template for your industry:**
+---
 
-```python
-from agentmesh.templates import load_template
+## Three-layer cache
 
-# Templates: fintech, healthcare, enterprise, research, customer_service, nvidia_nim
-policy = Policy.from_yaml(load_template("fintech"))   # SOX + PCI-DSS ready
-policy = Policy.from_yaml(load_template("healthcare")) # HIPAA ready
+Every prompt passes through three cache layers before touching an LLM:
+
 ```
+Layer 1 — Exact match      SHA-256 of normalised prompt    → 0 tokens, instant
+Layer 2 — Semantic match   sentence-transformers cosine    → 0 tokens, ~5ms
+Layer 3 — Vendor cache     Anthropic cache_control         → 10% of input cost
+```
+
+**Layer 2 catches prompts that mean the same thing but are worded differently:**
+
+| Original | Rephrased | Similarity | Result |
+|---|---|---|---|
+| `Review this microservices design...` | `You are a senior architect. Review...` | 0.99 | HIT — persona stripped |
+| `Review this microservices design...` | `Analyse this distributed system...` | 0.85 | HIT — British spelling normalised |
+| `Review this microservices design...` | `**Review** this \`microservices\` design...` | 0.97 | HIT — markdown stripped |
+| `Review this microservices design...` | `Review this distributed system: orders calls payments via REST...` | 0.70 | HIT — semantic match |
+| `Review this microservices design...` | `Write a Fibonacci function in Python` | -0.05 | MISS — correctly different |
+
+**Normalisation pipeline** (applied before hashing and embedding):
+
+1. Persona prefix strip — `"You are a senior SWE."` removed
+2. Filler word strip — `"Please can you"` removed
+3. Markdown strip — `**bold**`, `# headers`, `` `code` `` removed
+4. Date normalisation — `"June 13 2026"` → `"2026-06-13"`
+5. Number normalisation — `"1,000,000"` → `"1000000"`
+6. British→American spelling — `"optimise"` → `"optimize"`
+7. Code argument canonicalisation — `login(user, pwd)` ≡ `login(username, password)`
+8. Lowercase + whitespace collapse
+
+---
+
+## Token quota governance
+
+Per-team, per-user, per-tool limits with pre-call blocking and real-time observability.
+
+```bash
+# Start proxy with team limits
+agentmesh serve --port 8080 \
+  --team-limit engineering=2000000 \
+  --team-limit sales=500000 \
+  --warn-at 80 \
+  --hard-stop-at 100
+```
+
+```
+# Request from a team at 85% quota
+X-AgentMesh-Quota-Pct:  85%
+X-AgentMesh-Quota-Warn: Quota warning: team 'engineering' at 85% (300,000 tokens remaining)
+
+# Request from a team at 102% quota → 429
+HTTP 429
+{"error": {"type": "quota_exceeded", "message": "Quota exceeded: team 'engineering' used 2,040,000/2,000,000 tokens"}}
+```
+
+New in this release:
+- **Pre-call blocking** — blocked before the LLM call using estimated token count, not after
+- **Global vs team conflict resolution** — all quota dimensions checked; most restrictive wins
+- **Temp grant expiry** — emergency escalation grants expire after 24h (configurable)
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                          Your Application                             │
-│   LangGraph │ CrewAI │ OpenAI Agents │ AutoGen │ Haystack │ Pydantic  │
-└─────────────────────────────────┬────────────────────────────────────┘
-                                  │  All LLM calls intercepted
-                                  ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                         AgentMesh Proxy                               │
-│                                                                       │
-│  ┌────────────────┐  ┌────────────────┐  ┌─────────────────────────┐│
-│  │  Policy Engine │  │ Budget Enforcer│  │   Tamper-Evident Audit  ││
-│  │  (YAML / OPA)  │  │ (hard stop)    │  │   Trail (Ed25519 chain) ││
-│  └────────────────┘  └────────────────┘  └─────────────────────────┘│
-│                                                                       │
-│  ┌────────────────┐  ┌────────────────┐  ┌─────────────────────────┐│
-│  │ Semantic Cache │  │ Model Router   │  │   Circuit Breaker       ││
-│  │ (cosine sim)   │  │ (RouteLLM-style│  │   (runaway loop kill)   ││
-│  └────────────────┘  └────────────────┘  └─────────────────────────┘│
-│                                                                       │
-│  ┌────────────────┐  ┌────────────────┐  ┌─────────────────────────┐│
-│  │ Cost Attributor│  │ Compliance     │  │  HTTP Proxy Mode        ││
-│  │ (chargeback)   │  │ Reporter       │  │  (drop-in sidecar)      ││
-│  └────────────────┘  └────────────────┘  └─────────────────────────┘│
-└─────────────────────────────────┬────────────────────────────────────┘
-                                  │
-                ┌─────────────────┼─────────────────┐
-                ▼                 ▼                   ▼
-        Anthropic API       OpenAI API         NVIDIA NIM
-        Google Vertex       Azure OpenAI       Local / Ollama
+Engineers                    Business users
+──────────────────────────   ──────────────────────────────────────
+Claude Code (terminal)       ChatGPT web  ──► Chrome Extension
+VS Code Copilot (IDE)        Claude.ai    ──► Chrome Extension
+Cursor (IDE)                 Gemini web   ──► Chrome Extension
+Your agents (LangGraph etc.) ──────────────────────────────────────
+         │                              │
+         │  ANTHROPIC_BASE_URL          │  declarativeNetRequest
+         │  = http://localhost:8080     │  api.anthropic.com ──► localhost:8080
+         │                              │  api.openai.com   ──► localhost:8080
+         └──────────────┬───────────────┘
+                        │
+              ┌─────────▼──────────┐
+              │   AgentMesh Proxy  │
+              │                    │
+              │  1. Exact cache    │   SHA-256 → 0 tokens
+              │  2. Quota check    │   pre-call estimation
+              │  3. Compression    │   budget < 30%
+              │  4. Dry-run gate   │   require_approval mode
+              │  5. Vendor route   │   cheapest capable model
+              │  6. Audit log      │   Ed25519 tamper-evident
+              │  7. LLM call       │   Anthropic cache_control
+              │  8. Cache store    │   semantic + exact
+              │  9. Cost calc      │   per-team attribution
+              └─────────┬──────────┘
+                        │
+          ┌─────────────┼──────────────┐
+          ▼             ▼              ▼
+     Anthropic       OpenAI         Google
+     (Haiku/Sonnet)  (GPT-4o-mini)  (Gemini Flash)
 ```
 
 ---
 
-## Framework Support
-
-| Framework | Status | Install |
-|---|---|---|
-| LangGraph | ✅ Full support | `pip install agentmesh[langgraph]` |
-| CrewAI | ✅ Full support | `pip install agentmesh[crewai]` |
-| OpenAI Agents SDK | ✅ Full support | `pip install agentmesh[openai]` |
-| AutoGen v2 / AG2 | ✅ Full support | `pip install agentmesh` |
-| Pydantic AI | ✅ Full support | `pip install agentmesh` |
-| Haystack 2.x | ✅ Full support | `pip install agentmesh` |
-| Google ADK (Vertex AI) | ✅ Full support | `pip install agentmesh` |
-| NVIDIA NIM | ✅ Full support | `pip install agentmesh` |
-| Raw `anthropic` SDK | ✅ Full support | `pip install agentmesh` |
-| LiteLLM (proxy mode) | ✅ HTTP proxy | `pip install agentmesh` |
-| Microsoft Semantic Kernel | 🔄 In Progress | v0.3 |
-
----
-
-## Layer 1 — Policy Engine
-
-Define governance in YAML. No code changes to agents.
-
-```yaml
-# agentmesh-policy.yaml
-version: "1.0"
-policies:
-  - name: production-agents
-    budget:
-      daily_tokens: 1_000_000
-      monthly_usd: 3_000
-      per_run_tokens: 100_000
-      hard_stop: true            # kill run, never just warn
-
-    model_routing:
-      default: "claude-haiku-4-5"
-      upgrade_triggers:
-        - condition: "task_complexity > 0.8"
-          model: "claude-sonnet-4-6"
-      max_allowed: "claude-sonnet-4-6"  # Opus never auto-selected
-
-    circuit_breaker:
-      max_iterations: 25
-      max_tool_calls: 50
-      stall_detection_seconds: 120
-
-    compliance:
-      frameworks: ["eu-ai-act", "nist-ai-rmf", "hipaa"]
-      pii_detection: true
-```
-
----
-
-## Layer 2 — Semantic Caching
-
-Zero external dependencies. Pure-Python cosine similarity on n-gram embeddings.  
-Swap in OpenAI / Cohere embeddings for production quality.
-
-```python
-from agentmesh.cache import SemanticCache
-
-cache = SemanticCache(similarity_threshold=0.90, ttl_seconds=3600)
-
-# Near-duplicate queries hit the cache — no LLM call needed
-cached = cache.get("What is the capital of France?")  # None (first time)
-cache.put("What is the capital of France?", response, model="haiku")
-cached = cache.get("What's France's capital city?")   # HIT — 0.92 similarity
-
-print(cache.stats)
-# {'hits': 1, 'misses': 1, 'hit_rate': 0.5, 'tokens_saved': 847}
-```
-
----
-
-## Layer 3 — Cost Attribution & Chargeback
-
-Finally answer: *"Which team spent $50K on AI this month?"*
-
-```python
-from agentmesh.attribution import CostAttributor
-
-attributor = CostAttributor()
-
-# Record each agent run with team/project attribution
-attributor.record(
-    model="claude-haiku-4-5",
-    input_tokens=12_500, output_tokens=800, cost_usd=0.011,
-    team="data-science", project="fraud-detection",
-)
-
-# Summarize by team
-report = attributor.summary(group_by="team")
-print(report.to_csv())
-
-# Check who's over budget
-status = attributor.budget_status({"data-science": 500.0, "engineering": 2000.0})
-# {'data-science': {'spent_usd': 234.5, 'budget_usd': 500.0, 'pct_used': 46.9, 'over_budget': False}}
-```
-
----
-
-## Layer 4 — Compliance Reports
-
-Generate regulator-ready reports in seconds.
-
-```python
-from agentmesh.compliance import ComplianceReporter
-
-reporter = ComplianceReporter(mesh=mesh)
-
-# EU AI Act Article 13 compliance check
-report = reporter.generate(framework="eu-ai-act")
-print(report.summary())
-# === EU AI Act Compliance Report ===
-# Policy:    production-agents
-# Result:    COMPLIANT
-# Pass rate: 100% (9/9 checks)
-
-report.save("eu-ai-act-2026-Q2.json")  # Evidence package for auditors
-
-# Check all frameworks at once
-all_reports = reporter.generate_all()
-```
-
-**Supported frameworks**: `eu-ai-act` · `nist-ai-rmf` · `hipaa` · `soc2` · `iso-42001`
-
----
-
-## Layer 5 — Tamper-Evident Audit Trail
-
-Every agent action is signed and exportable to your SIEM.
-
-```python
-from agentmesh.audit import AuditTrail
-
-trail = AuditTrail(signing_key="your-ed25519-private-key")
-
-# Each entry: SHA-256 payload hash + Ed25519 signature + prev_hash chain
-trail.export_otel("http://your-collector:4317")     # → Splunk, Datadog, Elastic
-trail.export_json("audit-2026-Q2.json")             # → auditors
-
-assert trail.verify()  # tamper detection
-```
-
-Satisfies: **EU AI Act Art. 13** · **NIST AI RMF** · **SOC 2 Type II** · **HIPAA §164.312(b)**
-
----
-
-## HTTP Proxy Mode
-
-No SDK changes. Point any LLM client at AgentMesh.
+## Observability dashboard
 
 ```bash
-# Start the governance proxy
-agentmesh proxy --port 8080 --upstream https://api.anthropic.com --policy policy.yaml
+agentmesh observe --port 7861   # SSE event stream
+```
 
-# In your application: just change the base URL
+Or start everything together:
+
+```bash
+agentmesh serve --port 8080 --demo --observe
+# Opens: http://localhost:7860  (Gradio dashboard)
+#        http://localhost:7861  (SSE stream)
+#        http://localhost:8080  (proxy)
+```
+
+Events streamed in real time:
+
+```json
+{"kind": "cache_hit",   "team": "engineering", "tokens_saved": 847}
+{"kind": "cache_miss",  "team": "engineering", "model": "claude-haiku-4-5"}
+{"kind": "quota_warn",  "team": "engineering", "quota_pct": 0.85}
+{"kind": "quota_block", "team": "sales",       "quota_pct": 1.02}
+{"kind": "llm_call",    "vendor": "anthropic", "tokens": 1234, "cost_usd": 0.000185}
+```
+
+---
+
+## Quickstart (60 seconds)
+
+```bash
+# 1. Install
+pip install agentmesh sentence-transformers
+
+# 2. Start proxy in demo mode (no API keys needed)
+agentmesh serve --port 8080 --demo
+
+# 3. Point Claude Code at it
 export ANTHROPIC_BASE_URL=http://localhost:8080
-# All governance policies now apply automatically
+
+# 4. Run the benchmark
+python examples/benchmark.py
+# → 85% cache hit rate, 75% cost reduction on 20 requests
+
+# 5. Run the full test suite
+python examples/test_extension_e2e.py
+# → 13/13 PASS
 ```
 
 ---
 
-## CLI
+## Framework support
 
-```bash
-# Validate a policy file
-agentmesh validate my-policy.yaml
-
-# Inspect an audit trail
-agentmesh audit view audit-2026-Q2.json --format table
-agentmesh audit verify audit-2026-Q2.json
-
-# Generate a compliance report
-agentmesh compliance report --framework eu-ai-act --policy my-policy.yaml
-
-# Start governance proxy
-agentmesh proxy --port 8080 --policy my-policy.yaml
-
-# Estimate savings
-agentmesh benchmark --policy my-policy.yaml
-```
-
----
-
-## Observability
-
-| Tool | Status |
+| Framework | Status |
 |---|---|
-| OpenTelemetry (OTLP) | ✅ Native — grpc/http |
-| Langfuse | ✅ Via OTLP |
-| Arize Phoenix | ✅ Via OTLP |
-| Datadog | ✅ Via OTLP |
-| Splunk | ✅ Via OTLP |
-| Azure Monitor | ✅ Via OTLP |
-
-```bash
-pip install agentmesh[otel]
-```
+| LangGraph | Full support |
+| CrewAI | Full support |
+| OpenAI Agents SDK | Full support |
+| AutoGen v2 / AG2 | Full support |
+| Pydantic AI | Full support |
+| Haystack 2.x | Full support |
+| Google ADK | Full support |
+| NVIDIA NIM | Full support |
+| Raw `anthropic` / `openai` SDK | Full support |
+| Chrome extension (ChatGPT, Claude.ai, Gemini) | Full support |
+| Microsoft Semantic Kernel | In progress (v0.3) |
 
 ---
 
-## Target Companies & Pain Points
+## What's new (June 2026)
 
-AgentMesh was designed to solve the exact gaps these organizations face:
-
-| Company | Gap | How AgentMesh Fixes It |
-|---|---|---|
-| **NVIDIA** | No governance for NIM deployments | NIM integration + model routing across Llama tiers |
-| **Microsoft** | AutoGen has no budget enforcement | AutoGen v2 wrapper with hard stop + audit |
-| **Google** | ADK lacks cross-framework governance | Google ADK integration + Vertex AI policy |
-| **OpenAI** | Agents SDK has no cost controls | OpenAI Agents wrapper + semantic cache |
-| **Anthropic** | No native agent governance plane | Claude-native policy + Ed25519 audit |
-| **Meta** | No governance for open-source Llama agents | NVIDIA NIM + Llama policy templates |
-| **Intuit** | Financial AI needs SOX + PCI compliance | `fintech` template + compliance reporter |
-| **Apple** | No governance for on-device MLX agents | Lightweight core, no GPU required |
-| **Netflix** | ML cost optimization at scale | Cost attribution + team chargeback |
-| **Amazon** | "Tokenmaxxing" problem documented | Circuit breaker + budget hard stop |
+- **Chrome Extension** — governance overlay for ChatGPT, Claude.ai, Gemini web
+- **sentence-transformers semantic cache** — 384-dim embeddings replace character bigrams; catches paraphrased prompts at 0.70 cosine threshold
+- **Anthropic prompt caching** — `cache_control: ephemeral` wired into every system prompt (10% of normal input cost on cached reads)
+- **Streaming cache** — streamed responses now accumulated and cached after completion
+- **Pre-call quota blocking** — blocked before the LLM call using token estimation
+- **Normalisation pipeline** — markdown, dates, British spelling, persona prefixes all stripped before cache key generation
+- **Stats persistence** — Chrome extension stats survive service worker restarts
 
 ---
 
 ## Roadmap
 
-| Version | Target | Features |
-|---|---|---|
-| **v0.2** (current) | Q3 2026 | AutoGen v2, Haystack, Google ADK, NVIDIA NIM, semantic cache, cost attribution, compliance reports |
-| **v0.3** | Q4 2026 | Web dashboard, Kubernetes operator, Microsoft Semantic Kernel |
-| **v0.4** | Q1 2027 | EU AI Act report generator CLI, on-device / Apple Silicon enforcement |
-| **v0.5** | Q2 2027 | Multi-cloud federation, SSO/RBAC integration, SaaS hosted version |
+- [ ] Redis cache backend (shared across proxy instances)
+- [ ] VS Code extension (native IDE panel)
+- [ ] SAML/SSO identity propagation for enterprise quota
+- [ ] Slack/Teams bot intercept
+- [ ] OpenTelemetry trace export
+- [ ] Per-prompt cost alerts (Slack/PagerDuty webhook)
 
 ---
 
 ## Contributing
 
-AgentMesh is Apache 2.0 licensed and community-driven. We welcome contributions.
-
-```bash
-git clone https://github.com/anilatambharii/agentmesh
-cd agentmesh
-pip install -e ".[dev]"
-pytest tests/ -v
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. See [SECURITY.md](SECURITY.md) for responsible disclosure.
+See [CONTRIBUTING.md](CONTRIBUTING.md). PRs welcome — especially Redis backend, VS Code extension, and additional vendor support.
 
 ---
 
-## Citation
+## License
 
-```bibtex
-@software{agentmesh2026,
-  author  = {Prasad, Anil},
-  title   = {AgentMesh: A Universal Governance Plane for AI Agents},
-  year    = {2026},
-  version = {0.2.0},
-  url     = {https://github.com/anilatambharii/agentmesh},
-  license = {Apache-2.0},
-}
-```
+Apache 2.0 — see [LICENSE](LICENSE).
 
 ---
 
-## Related Projects
-
-- [LangGraph](https://github.com/langchain-ai/langgraph) — Graph-based agent orchestration
-- [CrewAI](https://github.com/crewAIInc/crewAI) — Role-based multi-agent teams
-- [AutoGen](https://github.com/microsoft/autogen) — Microsoft's conversation-based agents
-- [LLMLingua](https://github.com/microsoft/LLMLingua) — Prompt compression
-- [LiteLLM](https://github.com/BerriAI/litellm) — Multi-provider LLM proxy
-
----
-
-*Built by [Anil Prasad](https://github.com/anilatambharii) — co-founder of GenomicsIQ (World Economic Forum cohort), builder of Aria RCM (11-agent healthcare platform), BCG Aleph pricing platform contributor.*
-
-*If AgentMesh saves your team money, [give it a star](https://github.com/anilatambharii/agentmesh) ⭐ — it helps others find it.*
+*Built by [Anil Prasad](https://github.com/anilatambharii) — open to feedback, collabs, and conversations about enterprise AI governance.*

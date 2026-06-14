@@ -59,13 +59,16 @@ _state = RunState()
 def _event_to_log(e: SimEvent) -> str:
     ts = time.strftime("%H:%M:%S", time.localtime(e.timestamp))
     icons = {
-        "step":        "🟢",
-        "cache_hit":   "⚡",
-        "model_route": "🔀",
-        "budget":      "⚠️",
-        "circuit":     "🔴",
-        "complete":    "✅",
-        "error":       "❌",
+        "step":         "🟢",
+        "cache_hit":    "⚡",
+        "model_route":  "🔀",
+        "vendor_route": "🌐",
+        "budget":       "⚠️",
+        "circuit":      "🔴",
+        "complete":     "✅",
+        "error":        "❌",
+        "quota_warn":   "🟡",
+        "escalation":   "🚨",
     }
     icon = icons.get(e.kind, "·")
     if e.kind == "step":
@@ -75,7 +78,13 @@ def _event_to_log(e: SimEvent) -> str:
     elif e.kind == "model_route":
         from_m = e.from_model.split("-")[1] if "-" in e.from_model else e.from_model
         to_m   = e.to_model.split("-")[1]   if "-" in e.to_model   else e.to_model
-        return f"{ts} {icon} [{e.task_id}] MODEL ROUTE  {from_m} → {to_m}  (complexity triggered)"
+        return f"{ts} {icon} [{e.task_id}] MODEL ROUTE  {from_m} -> {to_m}  (complexity triggered)"
+    elif e.kind == "vendor_route":
+        return f"{ts} {icon} [{e.task_id}] VENDOR ROUTE  {e.vendor}/{e.model} | {e.message[:70]}"
+    elif e.kind == "quota_warn":
+        return f"{ts} {icon} QUOTA WARN | {e.message[:90]}"
+    elif e.kind == "escalation":
+        return f"{ts} {icon} ESCALATION {e.escalation_id} | {e.message[:80]}"
     elif e.kind == "budget":
         return f"{ts} {icon} PROMPT COMPRESSED | {e.message[:80]}"
     elif e.kind == "circuit":
@@ -111,20 +120,28 @@ def _stats_md(events: list[SimEvent], final: dict) -> str:
 
 # ── Tab 1: Live Run ────────────────────────────────────────────────────────────
 
-def run_agent(scenario: str, template: str, trip: bool):
+def run_agent(scenario: str, template: str, trip: bool, trip_quota: bool = False,
+              vendors: str = "anthropic"):
     """Generator — yields (log_text, stats_md) as the agent runs."""
     _state.reset()
     _state.running = True
 
+    vendor_list = [v.strip() for v in vendors.split(",") if v.strip()]
+
     yield (
         "🚀 Starting agent simulation…\n"
         f"   Scenario: {scenario}  |  Template: {template}  |  Circuit-breaker trip: {trip}\n"
+        f"   Quota enforcement: ON  |  Trip quota: {trip_quota}  |  Vendors: {', '.join(vendor_list)}\n"
         f"   All AgentMesh governance layers active.\n"
         + "─" * 70 + "\n",
         "*Running…*",
     )
 
-    for event in run_scenario(scenario, template, trip_circuit_breaker=trip):
+    for event in run_scenario(
+        scenario, template, trip_circuit_breaker=trip,
+        enable_quota=True, trip_quota=trip_quota,
+        vendors=vendor_list if len(vendor_list) > 1 else None,
+    ):
         _state.add(event)
         log = "\n".join(_state.log_lines[-60:])
         stats = _stats_md(_state.events, _state.final_data)
@@ -343,6 +360,132 @@ def get_compliance_data(framework: str = "eu-ai-act"):
     return "\n".join(lines)
 
 
+# ── Tab 7: Token Quota ────────────────────────────────────────────────────────
+
+def get_quota_data():
+    quota = _state.final_data.get("quota_snapshot", [])
+    if not quota:
+        return "*Run an agent first (quota is enabled by default).*", []
+
+    rows = []
+    for r in quota:
+        pct = r["pct_used"]
+        bar_filled = int(pct * 20)
+        bar = "█" * bar_filled + "░" * (20 - bar_filled)
+        status = "WARN" if pct >= 0.70 else "OK"
+        if pct >= 1.0:
+            status = "BLOCKED"
+        rows.append([
+            r["key"],
+            f"{r['used']:,}",
+            f"{r['limit']:,}",
+            f"{r['remaining']:,}",
+            f"{pct:.0%}",
+            bar,
+            status,
+        ])
+
+    total_used  = sum(r["used"]  for r in quota)
+    total_limit = sum(r["limit"] for r in quota)
+    util_str = f"{total_used/total_limit:.0%}" if total_limit else "—"
+    md = f"""
+### Enterprise Token Quota — Current Month
+
+| | |
+|---|---|
+| **Total used** | {total_used:,} tokens |
+| **Total budget** | {total_limit:,} tokens |
+| **Overall utilization** | {util_str} |
+| **Teams monitored** | {len(quota)} |
+
+Token budgets are enforced **before** any LLM call — no tokens are burned on blocked requests.
+When a team's quota is exhausted, AgentMesh auto-files an escalation request.
+"""
+    return md, rows
+
+
+# ── Tab 8: Escalations ────────────────────────────────────────────────────────
+
+def get_escalation_data():
+    esc = _state.final_data.get("escalations", {})
+    if not esc or not esc.get("requests"):
+        return "*No escalations yet. Enable 'Trip Quota' in Live Run to see this in action.*", []
+
+    requests = esc.get("requests", [])
+    rows = []
+    for r in requests:
+        rows.append([
+            r["id"],
+            r["team"],
+            r["tool"],
+            r["limit_key"],
+            r["pct_used"],
+            f"{r['requested_tokens']:,}",
+            r["priority"],
+            r["status"].upper(),
+            r["reason"][:60],
+            r["created_at"],
+        ])
+
+    summary = f"""
+### Token Quota Escalation Queue
+
+| | |
+|---|---|
+| **Total requests** | {esc.get('total', 0)} |
+| **Pending approval** | {esc.get('pending', 0)} |
+| **Approved** | {esc.get('approved', 0)} |
+| **Rejected** | {esc.get('rejected', 0)} |
+
+Escalations are auto-filed when a team's quota is exceeded.
+A temporary grant of 50,000 tokens is applied immediately so work can continue while awaiting approval.
+Approvers can action requests via: `agentmesh quota approve ESC-0001`
+"""
+    return summary, rows
+
+
+# ── Tab 9: Vendor Comparison ──────────────────────────────────────────────────
+
+def get_vendor_data():
+    vcomp = _state.final_data.get("vendor_comparison", [])
+    if not vcomp:
+        return "*Run an agent first.*", []
+
+    rows = []
+    for r in vcomp:
+        rows.append([
+            r["vendor"],
+            r["tier"],
+            r["model"],
+            f"${r['input_per_1m']:.2f}",
+            f"${r['output_per_1m']:.2f}",
+            f"{r['context_window']:,}",
+            f"${r['estimated_cost']:.5f}",
+            "CHEAPEST" if r == vcomp[0] else ("RECOMMENDED" if r.get("recommended") else ""),
+        ])
+
+    cheapest = vcomp[0]
+    most_expensive = vcomp[-1]
+    savings_pct = (1 - cheapest["estimated_cost"] / most_expensive["estimated_cost"]) * 100 if most_expensive["estimated_cost"] else 0
+
+    md = f"""
+### Multi-Vendor Cost Comparison
+
+*(For 1,000 input tokens + 300 output tokens)*
+
+| | |
+|---|---|
+| **Cheapest option** | {cheapest['vendor']} / {cheapest['model']} |
+| **Best price** | ${cheapest['estimated_cost']:.5f} per call |
+| **vs. most expensive** | {savings_pct:.0f}% cheaper |
+| **Vendors compared** | {len(set(r['vendor'] for r in vcomp))} |
+
+AgentMesh routes each call to the **cheapest capable model** across all configured vendors.
+Enable multi-vendor routing by setting `vendors=["anthropic","openai","google"]` in your policy.
+"""
+    return md, rows
+
+
 # ── Gradio App ────────────────────────────────────────────────────────────────
 
 CSS = """
@@ -351,8 +494,89 @@ CSS = """
 footer { display: none !important; }
 """
 
+# JavaScript injected into page <head> via gr.Blocks(js=...) — starts SSE connection
+# Gradio 6 wraps this in a function and calls it when the app loads.
+LIVE_STREAM_JS = """
+() => {
+  var STREAM_URL = 'http://localhost:7861/stream?last_n=80';
+  var colors = {
+    llm_call:'#58a6ff', cache_hit:'#3fb950', cache_miss:'#8b949e',
+    quota_warn:'#d29922', quota_block:'#f85149', escalation:'#bc8cff',
+    vendor_route:'#39d353', circuit_breaker:'#f78166', budget_warn:'#d29922', compress:'#79c0ff'
+  };
+  var counts = {llm_call:0, cache_hit:0, cache_miss:0, quota_warn:0, quota_block:0, escalation:0, vendor_route:0};
+  var totalTokens = 0, totalCost = 0.0;
+
+  function gid(id) { return document.getElementById(id); }
+
+  function updateHitRate() {
+    var calls = counts.cache_hit + counts.cache_miss;
+    if (!calls) return;
+    var rate = counts.cache_hit / calls;
+    var hr = gid('am-hitrate'); if (hr) hr.textContent = (rate*100).toFixed(1)+'%';
+    var hb = gid('am-hitbar');  if (hb) hb.style.width = (rate*100)+'%';
+  }
+
+  function addRow(ev) {
+    var evDiv = gid('am-events'); if (!evDiv) return;
+    var color = colors[ev.kind] || '#8b949e';
+    var teamStr  = ev.team   ? '<span style="color:#e3b341">'  + ev.team   + '</span>' : '';
+    var toolStr  = ev.tool   ? '<span style="color:#79c0ff">'  + ev.tool   + '</span>' : '';
+    var modelStr = ev.model  ? '<span style="color:#7ee787">'  + ev.model  + '</span>' : '';
+    var vendorStr= ev.vendor ? '<span style="color:#f78166">'  + ev.vendor + '</span>' : '';
+    var tokStr   = ev.tokens_used > 0 ? '<span style="color:#8b949e"> '+ev.tokens_used+'tok</span>' : '';
+    var pctStr   = ev.quota_pct  > 0 ? '<span style="color:#d29922"> '+(ev.quota_pct*100).toFixed(0)+'%</span>' : '';
+    var msgStr   = ev.message ? '<span style="color:#555;font-size:11px"> '+ev.message.substring(0,70)+'</span>' : '';
+    var row = document.createElement('div');
+    row.style.cssText = 'padding:3px 8px;border-left:3px solid '+color+';margin:2px 0;font-size:11.5px;line-height:1.5;';
+    row.innerHTML = '<span style="color:#444">'+(ev.timestamp_iso||'')+'</span> <span style="color:'+color+';font-weight:bold">['+ev.kind+']</span> '+teamStr+' '+toolStr+' '+modelStr+' '+vendorStr+tokStr+pctStr+msgStr;
+    evDiv.insertBefore(row, evDiv.firstChild);
+    while (evDiv.children.length > 200) { evDiv.removeChild(evDiv.lastChild); }
+  }
+
+  function connect() {
+    var es = new EventSource(STREAM_URL);
+    var statusEl = gid('am-status');
+
+    es.onopen = function() {
+      if (statusEl) { statusEl.innerHTML = '&#128994; <b>Live</b> &nbsp;&#8212;&nbsp; AgentMesh event stream connected'; statusEl.style.color='#3fb950'; }
+      var evDiv = gid('am-events');
+      if (evDiv && evDiv.children.length === 1) { evDiv.innerHTML = ''; }
+    };
+
+    es.onmessage = function(e) {
+      try {
+        var ev = JSON.parse(e.data);
+        if (counts.hasOwnProperty(ev.kind)) { counts[ev.kind]++; }
+        var idMap = {llm_call:'cnt-calls',cache_hit:'cnt-hits',cache_miss:'cnt-misses',quota_warn:'cnt-warns',quota_block:'cnt-blocks',escalation:'cnt-esc'};
+        var elemId = idMap[ev.kind];
+        if (elemId) { var el = gid(elemId); if (el) el.textContent = counts[ev.kind]; }
+        if (ev.kind === 'vendor_route') { var ve = gid('am-vendors'); if (ve) ve.textContent = counts.vendor_route; }
+        if (ev.tokens_used > 0) { totalTokens += ev.tokens_used; var te = gid('am-tokens'); if(te) te.textContent = totalTokens.toLocaleString(); }
+        if (ev.cost_usd    > 0) { totalCost   += ev.cost_usd;    var ce = gid('am-cost');   if(ce) ce.textContent = '$'+totalCost.toFixed(6); }
+        updateHitRate();
+        addRow(ev);
+      } catch(err) {}
+    };
+
+    es.onerror = function() {
+      if (statusEl) { statusEl.innerHTML = '&#128308; <b>Disconnected</b> &mdash; retrying...'; statusEl.style.color='#f85149'; }
+      es.close(); setTimeout(connect, 3000);
+    };
+  }
+
+  function tryInit() {
+    if (gid('am-status') && gid('am-events')) { connect(); }
+    else { setTimeout(tryInit, 500); }
+  }
+
+  setTimeout(tryInit, 800);
+}
+"""
+
+
 def build_app() -> gr.Blocks:
-    with gr.Blocks(title="AgentMesh Dashboard") as app:
+    with gr.Blocks(title="AgentMesh Dashboard", js=LIVE_STREAM_JS) as app:
 
         # ── Header ──────────────────────────────────────────────────────────
         gr.HTML("""
@@ -389,10 +613,22 @@ Watch: **budget enforcement** · **semantic cache hits** · **model routing** ·
                         label="Policy Template",
                         info="Governance policy to enforce",
                     )
+                with gr.Row():
                     trip_cb = gr.Checkbox(
                         value=False,
                         label="Trip Circuit Breaker",
                         info="Run until the circuit breaker fires",
+                    )
+                    trip_quota_cb = gr.Checkbox(
+                        value=False,
+                        label="Trip Quota (Trigger Escalation)",
+                        info="Pre-seed payments team at 100% quota — triggers auto-escalation",
+                    )
+                    vendors_dd = gr.Dropdown(
+                        choices=["anthropic", "anthropic,openai", "anthropic,openai,google"],
+                        value="anthropic",
+                        label="Vendors",
+                        info="Multi-vendor routing (comma-separated)",
                     )
                 run_btn = gr.Button("🚀 Run Demo Agent", variant="primary", size="lg")
 
@@ -411,7 +647,7 @@ Watch: **budget enforcement** · **semantic cache hits** · **model routing** ·
 
                 run_btn.click(
                     fn=run_agent,
-                    inputs=[scenario_dd, template_dd, trip_cb],
+                    inputs=[scenario_dd, template_dd, trip_cb, trip_quota_cb, vendors_dd],
                     outputs=[log_box, stats_md],
                 )
 
@@ -554,14 +790,225 @@ report.save("evidence-package-Q2-2026.json")       # → send to auditors
                     outputs=[comp_md],
                 )
 
+            # ── Tab 7: Token Quota ───────────────────────────────────────────
+            with gr.Tab("🔐 Token Quota"):
+                refresh_quota_btn = gr.Button("🔄 Refresh", size="sm")
+                quota_summary_md = gr.Markdown("*Run an agent first.*")
+                quota_table = gr.Dataframe(
+                    headers=["Team / User", "Used", "Limit", "Remaining", "Used %", "Usage Bar", "Status"],
+                    label="Token Quota by Team / User / Tool",
+                    interactive=False,
+                )
+
+                gr.Markdown("""
+**Enterprise Token Governance** — every AI interaction (VS Code Copilot, Teams bots,
+GitHub CI, Excel AI) flows through a single quota layer.
+
+```python
+from agentmesh.quota import QuotaPolicy, QuotaEnforcer
+
+policy = QuotaPolicy(
+    team_monthly_tokens={"engineering": 1_000_000, "payments": 500_000},
+    warn_at_pct=0.70,       # warn at 70%
+    hard_stop_at_pct=1.00,  # block at 100%
+    auto_escalate=True,     # auto-file ticket when blocked
+)
+enforcer = QuotaEnforcer(policy)
+enforcer.check(identity)   # → PASS / WARN / BLOCK
+```
+
+**Integrates with**: Jira · Slack · Email · ServiceNow — auto-files escalation tickets.
+                """)
+
+                refresh_quota_btn.click(
+                    fn=get_quota_data,
+                    outputs=[quota_summary_md, quota_table],
+                )
+
+            # ── Tab 8: Escalations ───────────────────────────────────────────
+            with gr.Tab("🚨 Escalations"):
+                refresh_esc_btn = gr.Button("🔄 Refresh", size="sm")
+                esc_summary_md = gr.Markdown("*Run an agent first (enable Trip Quota to trigger).*")
+                esc_table = gr.Dataframe(
+                    headers=["ID", "Team", "Tool", "Limit Key", "Quota %", "Requested", "Priority", "Status", "Reason", "Created"],
+                    label="Escalation Queue",
+                    interactive=False,
+                )
+
+                gr.Markdown("""
+**Auto-Escalation Workflow** — when a team hits their quota, AgentMesh auto-files
+a request and grants a temporary token budget so work continues uninterrupted.
+
+```python
+from agentmesh.quota.escalation import EscalationManager
+
+mgr = EscalationManager(enforcer=enforcer, auto_temp_grant=True)
+req = mgr.request(
+    identity=identity,
+    quota_result=result,
+    reason="Q4 board report — need 50K extra tokens",
+)
+# → Slack DM to #ai-governance + Jira ticket ESC-0042 created
+# → Temporary 50K token grant applied immediately
+# → Approver clicks Approve in Jira → permanent grant applied
+```
+
+**Dispatch channels**: Slack · Email · Jira · ServiceNow
+                """)
+
+                refresh_esc_btn.click(
+                    fn=get_escalation_data,
+                    outputs=[esc_summary_md, esc_table],
+                )
+
+            # ── Tab 9: Vendor Comparison ─────────────────────────────────────
+            with gr.Tab("🌐 Vendor Routing"):
+                refresh_vendor_btn = gr.Button("🔄 Refresh", size="sm")
+                vendor_summary_md = gr.Markdown("*Run an agent with multiple vendors to see routing decisions.*")
+                vendor_table = gr.Dataframe(
+                    headers=["Vendor", "Tier", "Model", "Input/1M", "Output/1M", "Context", "Est. Cost", "Label"],
+                    label="Multi-Vendor Cost Comparison (1K input + 300 output tokens)",
+                    interactive=False,
+                )
+
+                gr.Markdown("""
+**Automatic vendor arbitrage** — route every request to the cheapest capable model
+across Anthropic, OpenAI, Google, Azure, Mistral, and Cohere.
+
+```python
+from agentmesh.optimizer.multi_vendor import MultiVendorRouter
+
+router = MultiVendorRouter(
+    vendors=["anthropic", "openai", "google"],
+    routing_strategy="cheapest_capable",
+)
+decision = router.route("Summarize this PR diff")
+# → vendor="google", model="gemini-2.0-flash", tier="fast"
+# → 9x cheaper than claude-haiku for the same quality tier
+```
+
+**Strategies**: `cheapest_capable` · `vendor_preference` · `latency_optimized` · `compliance_safe`
+                """)
+
+                refresh_vendor_btn.click(
+                    fn=get_vendor_data,
+                    outputs=[vendor_summary_md, vendor_table],
+                )
+
+            # ── Tab 10: Live Stream ──────────────────────────────────────────
+            with gr.Tab("🔴 Live Stream"):
+                gr.HTML("""
+<div style="background:#0d1117;border-radius:10px;padding:20px;font-family:monospace;">
+
+  <!-- Status bar -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div>
+      <span id="am-status" style="color:#58a6ff;font-weight:bold;font-size:14px;">
+        ⏳ Connecting to AgentMesh event stream...
+      </span>
+    </div>
+    <div style="color:#444;font-size:11px;">localhost:7861/stream</div>
+  </div>
+
+  <!-- Live counters -->
+  <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:16px;">
+    <div style="background:#161b22;border-radius:6px;padding:10px;text-align:center;border:1px solid #21262d;">
+      <div id="cnt-calls" style="color:#58a6ff;font-size:22px;font-weight:bold;">0</div>
+      <div style="color:#8b949e;font-size:10px;margin-top:2px;">LLM Calls</div>
+    </div>
+    <div style="background:#161b22;border-radius:6px;padding:10px;text-align:center;border:1px solid #21262d;">
+      <div id="cnt-hits" style="color:#3fb950;font-size:22px;font-weight:bold;">0</div>
+      <div style="color:#8b949e;font-size:10px;margin-top:2px;">Cache Hits</div>
+    </div>
+    <div style="background:#161b22;border-radius:6px;padding:10px;text-align:center;border:1px solid #21262d;">
+      <div id="cnt-misses" style="color:#8b949e;font-size:22px;font-weight:bold;">0</div>
+      <div style="color:#8b949e;font-size:10px;margin-top:2px;">Cache Misses</div>
+    </div>
+    <div style="background:#161b22;border-radius:6px;padding:10px;text-align:center;border:1px solid #21262d;">
+      <div id="cnt-warns" style="color:#d29922;font-size:22px;font-weight:bold;">0</div>
+      <div style="color:#8b949e;font-size:10px;margin-top:2px;">Quota Warns</div>
+    </div>
+    <div style="background:#161b22;border-radius:6px;padding:10px;text-align:center;border:1px solid #21262d;">
+      <div id="cnt-blocks" style="color:#f85149;font-size:22px;font-weight:bold;">0</div>
+      <div style="color:#8b949e;font-size:10px;margin-top:2px;">Quota Blocks</div>
+    </div>
+    <div style="background:#161b22;border-radius:6px;padding:10px;text-align:center;border:1px solid #21262d;">
+      <div id="cnt-esc" style="color:#bc8cff;font-size:22px;font-weight:bold;">0</div>
+      <div style="color:#8b949e;font-size:10px;margin-top:2px;">Escalations</div>
+    </div>
+  </div>
+
+  <!-- Hit-rate bar -->
+  <div style="margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;color:#8b949e;font-size:11px;margin-bottom:4px;">
+      <span>Cache hit rate</span>
+      <span id="am-hitrate">—</span>
+    </div>
+    <div style="background:#21262d;border-radius:4px;height:6px;overflow:hidden;">
+      <div id="am-hitbar" style="background:#3fb950;height:100%;width:0%;transition:width 0.5s;"></div>
+    </div>
+  </div>
+
+  <!-- Token counter -->
+  <div style="display:flex;gap:20px;margin-bottom:16px;color:#8b949e;font-size:12px;">
+    <span>Total tokens: <b id="am-tokens" style="color:#e6edf3;">0</b></span>
+    <span>Est. cost: <b id="am-cost" style="color:#e6edf3;">$0.000000</b></span>
+    <span>Vendors routed: <b id="am-vendors" style="color:#39d353;">0</b></span>
+  </div>
+
+  <!-- Event log -->
+  <div style="margin-bottom:8px;color:#8b949e;font-size:11px;display:flex;justify-content:space-between;">
+    <span>GOVERNANCE EVENT LOG</span>
+    <span style="cursor:pointer;color:#58a6ff;" onclick="document.getElementById('am-events').innerHTML=''">[ clear ]</span>
+  </div>
+  <div id="am-events"
+       style="height:380px;overflow-y:auto;background:#010409;border-radius:6px;
+              padding:10px;border:1px solid #21262d;">
+    <div style="color:#444;font-size:12px;text-align:center;padding:40px 0;">
+      Open the <b style="color:#58a6ff">Live Run</b> tab and click <b style="color:#3fb950">Run Demo Agent</b> — events appear here in real time.
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:#8b949e;">
+    <span><span style="color:#58a6ff">■</span> llm_call</span>
+    <span><span style="color:#3fb950">■</span> cache_hit</span>
+    <span><span style="color:#8b949e">■</span> cache_miss</span>
+    <span><span style="color:#d29922">■</span> quota_warn</span>
+    <span><span style="color:#f85149">■</span> quota_block</span>
+    <span><span style="color:#bc8cff">■</span> escalation</span>
+    <span><span style="color:#39d353">■</span> vendor_route</span>
+    <span><span style="color:#f78166">■</span> circuit_breaker</span>
+  </div>
+</div>
+""")
+
     return app
 
 
+OBS_SERVER_PORT = 7861
+_obs_started    = False
+
+
 def main():
+    global _obs_started
     print("=" * 60)
     print("  AgentMesh Web Dashboard")
-    print("  Starting at http://localhost:7860")
+    print("  Dashboard  : http://localhost:7860")
+    print(f"  SSE stream : http://localhost:{OBS_SERVER_PORT}/stream")
+    print(f"  REST API   : http://localhost:{OBS_SERVER_PORT}/docs")
     print("=" * 60)
+
+    # Start the real-time observability server (daemon thread — dies with main process)
+    if not _obs_started:
+        try:
+            from agentmesh.server import start_server
+            start_server(port=OBS_SERVER_PORT)
+            _obs_started = True
+            print(f"  [OK] Observability server started on :{OBS_SERVER_PORT}")
+        except Exception as exc:
+            print(f"  [WARN] Could not start observability server: {exc}")
+
     app = build_app()
     app.launch(
         server_name="0.0.0.0",
