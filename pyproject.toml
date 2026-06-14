@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentmesh-proxy"
-version = "0.2.0"
+version = "0.2.1"
 description = "Governance proxy for every AI tool — semantic cache, token quotas, vendor routing, Chrome extension"
 readme = "README.md"
 license = { text = "Apache-2.0" }
