@@ -20,3 +20,6 @@ htmlcov/
 *.tmp
 .DS_Store
 node_modules/
+
+# Private marketing / publishing notes
+docs/social-posts.md
