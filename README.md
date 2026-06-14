@@ -5,8 +5,8 @@
 > *"Istio for AI — intercept, cache, and govern every LLM call across Claude Code, VS Code Copilot, ChatGPT, Gemini, and your own agents. One proxy, one policy, one bill."*
 
 [![CI](https://github.com/anilatambharii/agentmesh/actions/workflows/ci.yml/badge.svg)](https://github.com/anilatambharii/agentmesh/actions/workflows/ci.yml)
-[![PyPI version](https://badge.fury.io/py/agentmesh.svg)](https://badge.fury.io/py/agentmesh)
-[![PyPI Downloads](https://static.pepy.tech/badge/agentmesh)](https://pepy.tech/project/agentmesh)
+[![PyPI version](https://badge.fury.io/py/agentmesh-proxy.svg)](https://badge.fury.io/py/agentmesh-proxy)
+[![PyPI Downloads](https://static.pepy.tech/badge/agentmesh-proxy)](https://pepy.tech/project/agentmesh-proxy)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
@@ -34,7 +34,7 @@ Your LangGraph / CrewAI / AutoGen agents                                   OpenA
 ## Benchmark — real numbers, demo mode, no API keys needed
 
 ```bash
-pip install agentmesh sentence-transformers
+pip install agentmesh-proxy-proxy sentence-transformers
 python examples/benchmark.py
 ```
 
@@ -72,7 +72,7 @@ The root cause: every AI tool — Claude Code, GitHub Copilot, ChatGPT, your cus
 ### 1. Proxy mode — zero code changes, covers everything
 
 ```bash
-pip install agentmesh
+pip install agentmesh-proxy
 agentmesh serve --port 8080 --demo
 ```
 
@@ -303,7 +303,7 @@ Events streamed in real time:
 
 ```bash
 # 1. Install
-pip install agentmesh sentence-transformers
+pip install agentmesh-proxy sentence-transformers
 
 # 2. Start proxy in demo mode (no API keys needed)
 agentmesh serve --port 8080 --demo
