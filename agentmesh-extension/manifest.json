@@ -1,13 +1,12 @@
 {
   "manifest_version": 3,
   "name": "AgentMesh — AI Governance",
-  "version": "0.1.0",
+  "version": "0.2.2",
   "description": "Intercept AI prompts, enforce token quotas, cache responses. Works with Claude, ChatGPT, Gemini.",
 
   "permissions": [
     "declarativeNetRequest",
     "storage",
-    "tabs",
     "activeTab"
   ],
 
