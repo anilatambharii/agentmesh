@@ -83,6 +83,9 @@ class ProxyConfig:
     host:                  str             = "0.0.0.0"
     port:                  int             = 8080
     log_level:             str             = "warning"
+    # Deterministic mode: team -> pinned model (empty string = keep routed model, temperature=0 only)
+    # Example: {"healthcare": "claude-haiku-4-5", "legal": "claude-sonnet-4-6"}
+    deterministic_teams:   Dict[str, str]  = field(default_factory=dict)
 
 
 # ── Identity extraction ───────────────────────────────────────────────────────
@@ -225,8 +228,12 @@ async def _govern(
             content, ti, to = extract_response_content(hit, "anthropic")
             _emit("cache_hit", model=model_hint, cache_layer="semantic",
                   tokens_saved=ti + to, message=f"saved {ti + to} tokens")
-            hdrs.update({"X-AgentMesh-Cache": "hit", "X-AgentMesh-Tokens": "0",
-                         "X-AgentMesh-Cost-USD": "0.000000"})
+            hdrs.update({
+                "X-AgentMesh-Cache":         "hit",
+                "X-AgentMesh-Tokens":        "0",
+                "X-AgentMesh-Cost-USD":      "0.000000",
+                "X-AgentMesh-Deterministic": "true" if team in config.deterministic_teams else "false",
+            })
             return JSONResponse(
                 content=format_response_for_client(content, model_hint, client_fmt,
                                                    input_tokens=ti, output_tokens=to, cached=True),
@@ -297,6 +304,24 @@ async def _govern(
               cost_usd=dec.estimated_cost,
               message=f"{dec.tier.value} tier | ${dec.estimated_cost:.5f}")
     hdrs.update({"X-AgentMesh-Vendor": vendor, "X-AgentMesh-Model": model})
+
+    # ── 5.5. Deterministic mode ───────────────────────────────────────────────
+    # Per-team enforcement: temperature forced to 0.0 and optionally model pinned.
+    # Guarantees the semantic cache always returns the same response for a given
+    # normalised prompt — required for healthcare, legal, and compliance workloads.
+    deterministic = False
+    if team in config.deterministic_teams:
+        deterministic = True
+        temperature = 0.0
+        pinned = config.deterministic_teams[team]
+        if pinned:
+            model = pinned
+        hdrs["X-AgentMesh-Deterministic"] = "true"
+        hdrs["X-AgentMesh-Model"] = model
+        _emit("deterministic_enforced", model=model, temperature=0.0,
+              message=f"team '{team}' deterministic mode: temperature=0, model={model}")
+    else:
+        hdrs["X-AgentMesh-Deterministic"] = "false"
 
     # ── 6. Audit ──────────────────────────────────────────────────────────────
     mesh.audit.record_call({"messages": messages, "model": model})

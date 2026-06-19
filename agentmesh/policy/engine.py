@@ -86,6 +86,16 @@ class Policy:
         except Exception:
             return False
 
+    def is_deterministic_for_team(self, team: str) -> bool:
+        """Return True if this team should have temperature=0 and a pinned model."""
+        det = getattr(self._schema, "deterministic_teams", {})
+        return team in det
+
+    def get_pinned_model_for_team(self, team: str) -> Optional[str]:
+        """Return the pinned model for a deterministic team, or None to keep routed model."""
+        det = getattr(self._schema, "deterministic_teams", {})
+        return det.get(team) or None
+
     def _min_model(self, requested: str, maximum: str) -> str:
         """Return the less capable of two models based on a tier ranking."""
         tier_order = [
