@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install core deps first for layer caching
 COPY pyproject.toml README.md LICENSE ./
-RUN pip install --no-cache-dir "agentmesh-proxy[semantic]==0.2.1"
+RUN pip install --no-cache-dir "agentmesh-proxy[semantic]==0.3.2"
 
 # Copy source (for SDK / CLI usage on top of installed package)
 COPY agentmesh/ ./agentmesh/
