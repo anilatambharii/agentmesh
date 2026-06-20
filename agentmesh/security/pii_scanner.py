@@ -99,6 +99,9 @@ _PATTERNS: List[tuple] = [
     ("PCI_CVV",     _p(r"\b(?:cvv|cvc|cvv2|cvc2|security code)[:\s]+\d{3,4}\b")),
     ("PCI_ROUTING", _p(r"\b(?:routing(?:\s+number)?|aba)[:\s]+\d{9}\b")),
     ("PCI_ACCOUNT", _p(r"\b(?:account(?:\s+number)?|acct)[:\s]+\d{8,17}\b")),
+    ("PCI_BALANCE", _p(r"\b(?:current\s+balance|available\s+(?:balance|credit)|outstanding\s+balance|"
+                       r"account\s+balance|closing\s+balance|credit\s+limit|amount\s+(?:owing|due|owed))"
+                       r"[:\s]+\$?[\d,]+(?:\.\d{2})?\b")),
 
     # ── CII (credential & infrastructure) ────────────────────────────────────
     ("CII_AWS_KEY",  _p(r"\b(?:AKIA|ASIA|AROA|AIDA|ANPA|ANVA|AIPA)[A-Z0-9]{16}\b")),
