@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentmesh-proxy"
-version = "0.2.1"
-description = "Governance proxy for every AI tool — semantic cache, token quotas, vendor routing, Chrome extension"
+version = "0.3.0"
+description = "Governance proxy for every AI tool — PII/PHI masking, prompt injection detection, anomaly alerts, semantic cache, token quotas, vendor routing, compliance reports"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Anil Prasad", email = "meetanilp@gmail.com" }]
@@ -54,8 +54,10 @@ otel = [
 ]
 huggingface = ["gradio>=4.0"]
 semantic = ["sentence-transformers>=2.6"]
+redis = ["redis>=5.0"]
+pdf = ["reportlab>=4.0"]
 all = [
-    "agentmesh[langgraph,crewai,openai,compression,otel,semantic]",
+    "agentmesh[langgraph,crewai,openai,compression,otel,semantic,redis,pdf]",
 ]
 dev = [
     "pytest>=8.0",
