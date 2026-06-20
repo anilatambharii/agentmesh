@@ -16,6 +16,75 @@
 
 ---
 
+## Enterprise Governance Features
+
+AgentMesh ships a complete enterprise security and compliance stack — no third-party SaaS required.
+
+| Feature | Module | What it does |
+|---|---|---|
+| **PII / PHI / PCI masking** | `agentmesh/security/pii_scanner.py` | Scans every prompt for SSN, credit cards, medical records, AWS keys, JWTs — masks or blocks before the LLM sees them |
+| **Prompt injection detection** | `agentmesh/security/injection_detector.py` | 14 rules covering DAN, roleplay jailbreaks, role confusion, encoding tricks — HIGH risk blocked automatically |
+| **Output toxicity filter** | `agentmesh/security/toxicity_filter.py` | Post-call scan of LLM responses for hate speech, hallucinations, policy leaks, refusal bypasses |
+| **Cost anomaly detection** | `agentmesh/monitoring/anomaly_detector.py` | Sliding-window burn rate, spend spike, runaway agent loop, cache miss flood — fires alerts in real time |
+| **Slack / PagerDuty alerts** | `agentmesh/integrations/webhooks.py` | Fire-and-forget alerts on anomalies, quota blocks, injection detections — never blocks the request path |
+| **Redis distributed cache** | `agentmesh/cache/redis_backend.py` | Shared semantic cache across multiple proxy instances — falls back to in-memory if Redis is unavailable |
+| **SAML / SSO identity** | `agentmesh/integrations/saml_handler.py` | Extracts team/user identity from SAML assertions, OIDC JWTs, or pre-verified proxy headers |
+| **Vendor health monitor** | `agentmesh/optimizer/health_monitor.py` | Per-vendor circuit breaker — automatically routes around degraded APIs |
+| **EU AI Act / HIPAA reports** | `agentmesh/compliance/pdf_report.py` | One-click compliance reports for EU AI Act, HIPAA, SOC2, NIST AI RMF — Markdown and PDF |
+| **Chargeback export** | `agentmesh/attribution/chargebacks.py` | Per-team, per-month, per-model cost attribution — CSV and JSON for internal billing |
+
+### Quick config
+
+```python
+from agentmesh.proxy.server import ProxyConfig, build_proxy_app
+
+app = build_proxy_app(ProxyConfig(
+    vendors=["anthropic", "openai", "google"],
+
+    # Security
+    pii_mode="mask",               # "mask" | "redact" | "block"
+    block_injections=True,         # block HIGH-risk prompt injection
+    toxicity_filter=True,          # filter harmful LLM output
+
+    # Monitoring
+    anomaly_detection=True,
+    slack_webhook="https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK",
+    pagerduty_key="YOUR_PD_ROUTING_KEY",
+
+    # Infrastructure
+    redis_url="redis://your-redis:6379/0",   # distributed cache
+    sso_enabled=True,                        # JWT/SAML identity extraction
+
+    # Deterministic mode — temperature=0 per team
+    deterministic_teams={"healthcare": "claude-haiku-4-5", "legal": "claude-sonnet-4-6"},
+))
+```
+
+New governance response headers:
+
+```
+X-AgentMesh-PII-Findings:     3           # entities masked in this prompt
+X-AgentMesh-PII-Types:        EMAIL,SSN   # types detected
+X-AgentMesh-Injection-Risk:   high        # injection detected (request blocked)
+X-AgentMesh-Toxicity:         TOXICITY    # output toxicity type
+X-AgentMesh-Toxicity-Action:  redacted    # redacted | blocked
+X-AgentMesh-Anomaly:          RUNAWAY_LOOP
+X-AgentMesh-SSO-Source:       jwt         # jwt | saml | header
+X-AgentMesh-Deterministic:    true
+```
+
+### Compliance report (one line)
+
+```python
+from agentmesh.compliance.pdf_report import ComplianceReporter, Framework
+
+reporter = ComplianceReporter(policy=your_policy, audit_trail=your_audit)
+reporter.generate_pdf(Framework.HIPAA, output_path="hipaa_report.pdf")
+reporter.generate_pdf(Framework.EU_AI_ACT, output_path="eu_ai_act_report.pdf")
+```
+
+---
+
 ## What it does
 
 AgentMesh sits between your engineers and every LLM API. It enforces token budgets, semantically caches repeated prompts, and routes calls to the cheapest capable model — without touching a single line of agent code.
@@ -34,7 +103,7 @@ Your LangGraph / CrewAI / AutoGen agents                                   OpenA
 ## Benchmark — real numbers, demo mode, no API keys needed
 
 ```bash
-pip install agentmesh-proxy-proxy sentence-transformers
+pip install agentmesh-proxy sentence-transformers
 python examples/benchmark.py
 ```
 
@@ -253,15 +322,15 @@ Your agents (LangGraph etc.) ─────────────────
               ┌─────────▼──────────┐
               │   AgentMesh Proxy  │
               │                    │
-              │  1. Exact cache    │   SHA-256 → 0 tokens
+              │  1. Circuit breaker│   kill runaway loops first
               │  2. Quota check    │   pre-call estimation
-              │  3. Compression    │   budget < 30%
-              │  4. Dry-run gate   │   require_approval mode
+              │  3. Exact cache    │   SHA-256 → 0 tokens
+              │  4. Semantic cache │   sentence-transformers cosine
               │  5. Vendor route   │   cheapest capable model
-              │  6. Audit log      │   Ed25519 tamper-evident
-              │  7. LLM call       │   Anthropic cache_control
+              │  6. Provider cache │   Anthropic cache_control
+              │  7. LLM call       │   only if all caches missed
               │  8. Cache store    │   semantic + exact
-              │  9. Cost calc      │   per-team attribution
+              │  9. Audit log      │   Ed25519 tamper-evident
               └─────────┬──────────┘
                         │
           ┌─────────────┼──────────────┐

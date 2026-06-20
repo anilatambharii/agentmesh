@@ -86,6 +86,16 @@ class ProxyConfig:
     # Deterministic mode: team -> pinned model (empty string = keep routed model, temperature=0 only)
     # Example: {"healthcare": "claude-haiku-4-5", "legal": "claude-sonnet-4-6"}
     deterministic_teams:   Dict[str, str]  = field(default_factory=dict)
+    # ── Enterprise security / governance ──────────────────────────────────────
+    pii_mode:              str             = ""     # "mask" | "redact" | "block" | "" (disabled)
+    pii_entity_types:      List[str]       = field(default_factory=list)  # empty = all types
+    block_injections:      bool            = True   # block HIGH prompt injection by default
+    anomaly_detection:     bool            = True
+    toxicity_filter:       bool            = True
+    redis_url:             str             = ""     # empty = in-memory cache only
+    slack_webhook:         str             = ""     # Slack incoming webhook URL
+    pagerduty_key:         str             = ""     # PagerDuty Events API routing key
+    sso_enabled:           bool            = False  # extract identity from JWT/SAML headers
 
 
 # ── Identity extraction ───────────────────────────────────────────────────────
@@ -154,6 +164,13 @@ def build_proxy_app(config: ProxyConfig) -> FastAPI:
             "demo_mode": config.demo_mode,
             "vendors":   config.vendors,
             "cache":     mesh.cache.stats if mesh.cache else None,
+            "security": {
+                "pii_mode":          config.pii_mode or "disabled",
+                "injection_detection": config.block_injections,
+                "toxicity_filter":   config.toxicity_filter,
+                "anomaly_detection": config.anomaly_detection,
+                "sso_enabled":       config.sso_enabled,
+            },
         }
 
     @app.get("/v1/models")
@@ -214,6 +231,16 @@ async def _govern(
     if team == "default" and not request.headers.get("X-AgentMesh-Team"):
         hdrs["X-AgentMesh-Team-Inferred"] = "true"
 
+    # ── 0.5. SSO / SAML identity override ────────────────────────────────────
+    if config.sso_enabled and mesh.sso_extractor:
+        sso_id = mesh.sso_extractor.extract(dict(request.headers))
+        if sso_id:
+            team = sso_id.team or team
+            user = sso_id.user or user
+            hdrs["X-AgentMesh-Team"]      = team
+            hdrs["X-AgentMesh-SSO-Source"] = sso_id.source
+            identity = identity.__class__(user=user, team=team, tool=tool)
+
     def _emit(kind: str, **kw):
         try:
             bus.emit(GovernanceEvent(kind=kind, team=team, user=user, tool=tool, **kw))
@@ -240,6 +267,31 @@ async def _govern(
                 headers=hdrs,
             )
     _emit("cache_miss", model=model_hint)
+
+    # ── 1.5. Prompt injection detection ──────────────────────────────────────
+    if mesh.injection_detector:
+        from agentmesh.security.injection_detector import InjectionDetectedError
+        try:
+            inj = mesh.injection_detector.scan(messages)
+            if inj.risk_level.value != "none":
+                hdrs["X-AgentMesh-Injection-Risk"] = inj.risk_level.value
+                _emit("injection_detected", risk_level=inj.risk_level.value,
+                      rules=[m.rule_id for m in inj.matches],
+                      message=f"Prompt injection risk={inj.risk_level.value}")
+                if mesh.alert_router and inj.risk_level.value == "high":
+                    mesh.alert_router.alert(
+                        title="Prompt Injection Detected",
+                        message=f"Team '{team}' — high risk injection detected and blocked",
+                        severity="critical", team=team,
+                    )
+        except InjectionDetectedError as e:
+            hdrs["X-AgentMesh-Injection-Risk"] = "high"
+            return JSONResponse(
+                status_code=400, headers=hdrs,
+                content={"error": {"type": "injection_detected",
+                                   "message": "Request blocked: prompt injection detected",
+                                   "rules": [m.rule_id for m in e.result.matches]}},
+            )
 
     # ── 2. Quota check ────────────────────────────────────────────────────────
     if mesh.quota_enforcer:
@@ -268,6 +320,28 @@ async def _govern(
                   quota_used=qr.used_tokens, quota_limit=qr.limit_tokens,
                   message=qr.message)
             hdrs["X-AgentMesh-Quota-Warn"] = qr.message
+
+    # ── 2.5. PII / PHI / PCI scanning ────────────────────────────────────────
+    if mesh.pii_scanner and config.pii_mode:
+        from agentmesh.security.pii_scanner import PIIDetectedError
+        try:
+            messages, pii_findings = mesh.pii_scanner.scan_messages(messages)
+            internal = {**internal, "messages": messages}
+            if pii_findings:
+                types = sorted({f.entity_type for f in pii_findings})
+                hdrs["X-AgentMesh-PII-Findings"] = str(len(pii_findings))
+                hdrs["X-AgentMesh-PII-Types"]    = ",".join(types)
+                _emit("pii_detected", count=len(pii_findings), types=types,
+                      mode=config.pii_mode,
+                      message=f"PII {config.pii_mode}: {len(pii_findings)} entities ({', '.join(types)})")
+        except PIIDetectedError as e:
+            hdrs["X-AgentMesh-PII-Findings"] = str(len(e.findings))
+            return JSONResponse(
+                status_code=400, headers=hdrs,
+                content={"error": {"type": "pii_blocked",
+                                   "message": "Request blocked: sensitive data detected",
+                                   "types": sorted({f.entity_type for f in e.findings})}},
+            )
 
     # ── 3. Prompt compression ─────────────────────────────────────────────────
     if mesh.compressor and mesh.budget.remaining_ratio() < 0.30:
@@ -386,6 +460,21 @@ async def _govern(
     if mesh.cache and cache_key and content and tokens_total > 0 and not raw.get("_error"):
         mesh.cache.put(cache_key, raw, model=model, tokens=tokens_total)
 
+    # ── 8.5. Output toxicity filter ───────────────────────────────────────────
+    if mesh.toxicity_filter and content:
+        tox = mesh.toxicity_filter.scan(content)
+        if tox.findings:
+            types = sorted({f.check_type for f in tox.findings})
+            hdrs["X-AgentMesh-Toxicity"] = ",".join(types)
+            _emit("toxicity_detected", types=types, action=tox.action.value,
+                  message=f"Output toxicity: {', '.join(types)} → {tox.action.value}")
+        if tox.action.value == "block":
+            content = mesh.toxicity_filter.safe_response()
+            hdrs["X-AgentMesh-Toxicity-Action"] = "blocked"
+        elif tox.action.value == "redact" and tox.cleaned_text:
+            content = tox.cleaned_text
+            hdrs["X-AgentMesh-Toxicity-Action"] = "redacted"
+
     # ── 9. Cost calculation ───────────────────────────────────────────────────
     from agentmesh.optimizer.multi_vendor import (VENDOR_CATALOG,
         _complexity_score, _tier_from_score)
@@ -398,6 +487,25 @@ async def _govern(
     _emit("llm_call", model=model, vendor=vendor, tokens_used=tokens_total,
           cost_usd=cost_usd,
           message=f"{tok_in}in + {tok_out}out = {tokens_total} tok | ${cost_usd:.5f}")
+
+    # ── 9.5. Anomaly detection ────────────────────────────────────────────────
+    if mesh.anomaly_detector and config.anomaly_detection:
+        anomaly = mesh.anomaly_detector.record(
+            team=team, tokens=tokens_total, cost_usd=cost_usd,
+            cache_hit=False,
+        )
+        if anomaly and mesh.alert_router:
+            mesh.alert_router.alert(
+                title=f"AgentMesh Anomaly: {anomaly.anomaly_type}",
+                message=anomaly.message,
+                severity=anomaly.severity.value,
+                team=team,
+                anomaly_type=anomaly.anomaly_type,
+                value=anomaly.value,
+                threshold=anomaly.threshold,
+            )
+        if anomaly:
+            hdrs["X-AgentMesh-Anomaly"] = anomaly.anomaly_type
 
     latency_ms = round((time.monotonic() - t0) * 1000)
     hdrs.update({
@@ -477,8 +585,46 @@ def _build_mesh(config: ProxyConfig) -> Any:
         routing_strategy=config.routing_strategy,
         log_level="WARNING",
     )
-    return AgentMesh(config=cfg, quota_policy=qp,
+    mesh = AgentMesh(config=cfg, quota_policy=qp,
                      vendors=config.vendors if len(config.vendors) > 1 else None)
+
+    # ── Enterprise security / monitoring modules ──────────────────────────────
+    from agentmesh.security.pii_scanner import PIIScanner, ScanMode
+    from agentmesh.security.injection_detector import InjectionDetector
+    from agentmesh.security.toxicity_filter import ToxicityFilter
+    from agentmesh.monitoring.anomaly_detector import AnomalyDetector
+    from agentmesh.integrations.webhooks import AlertRouter, SlackConfig, PagerDutyConfig
+    from agentmesh.integrations.saml_handler import SSOIdentityExtractor
+
+    mesh.pii_scanner = (
+        PIIScanner(
+            mode=ScanMode(config.pii_mode),
+            enabled_types=config.pii_entity_types or None,
+        )
+        if config.pii_mode else None
+    )
+    mesh.injection_detector = (
+        InjectionDetector(block_on={"high"} if config.block_injections else set())
+        if config.block_injections else None
+    )
+    mesh.toxicity_filter = ToxicityFilter() if config.toxicity_filter else None
+    mesh.anomaly_detector = AnomalyDetector() if config.anomaly_detection else None
+    mesh.sso_extractor = SSOIdentityExtractor() if config.sso_enabled else None
+
+    slack  = SlackConfig(webhook_url=config.slack_webhook)   if config.slack_webhook   else None
+    pager  = PagerDutyConfig(routing_key=config.pagerduty_key) if config.pagerduty_key else None
+    mesh.alert_router = AlertRouter(slack=slack, pagerduty=pager) if (slack or pager) else None
+
+    # Optionally swap in Redis cache backend
+    if config.redis_url and mesh.cache:
+        from agentmesh.cache.redis_backend import RedisCache
+        redis_cache = RedisCache(url=config.redis_url)
+        # Monkey-patch get/put onto the existing CostOptimizer cache slot
+        mesh.cache.get  = redis_cache.get
+        mesh.cache.put  = redis_cache.put
+        mesh.cache.stats = redis_cache.stats()
+
+    return mesh
 
 
 # ── Background thread launcher ────────────────────────────────────────────────
