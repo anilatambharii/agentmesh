@@ -81,7 +81,7 @@ _PATTERNS: List[tuple] = [
     ("EMAIL",       _p(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")),
     ("PHONE_US",    _p(r"\b(\+1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}\b")),
     ("SSN",         _p(r"\b(?!000|666|9\d{2})\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b")),
-    ("PASSPORT",    _p(r"\b[A-Z]{1,2}\d{6,9}\b")),
+    ("PASSPORT",    _p(r"\b(?:passport(?:\s+(?:no|number|num|#))?)[:\s#]+[A-Z]{1,2}\d{6,9}\b")),
     ("IP_ADDRESS",  _p(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
     ("DOB",         _p(r"\b(?:born|dob|date of birth)[:\s]+\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}\b")),
     ("ZIP_CODE",    _p(r"\b\d{5}(?:-\d{4})?\b")),
@@ -128,6 +128,25 @@ def _luhn(number: str) -> bool:
     for i, d in enumerate(reversed(digits)):
         total += d if i % 2 == 0 else (d * 2 - 9 if d * 2 > 9 else d * 2)
     return total % 10 == 0
+
+
+def _dedup_overlapping(findings: List[Finding]) -> List[Finding]:
+    """
+    Remove overlapping findings, keeping the outermost (earliest-starting) match.
+    Sorts by start position, then drops any finding whose range overlaps the
+    previous kept finding.
+    """
+    if len(findings) <= 1:
+        return findings
+    sorted_f = sorted(findings, key=lambda f: (f.start, -(f.end - f.start)))
+    result: List[Finding] = []
+    last_end = -1
+    for f in sorted_f:
+        if f.start >= last_end:
+            result.append(f)
+            last_end = f.end
+        # else: this finding is fully or partially inside the previous one — skip it
+    return result
 
 
 class PIIScanner:
@@ -202,10 +221,16 @@ class PIIScanner:
         if not findings:
             return ScanResult(original=text, cleaned=text)
 
+        # Remove overlapping matches — when two patterns overlap (e.g. PASSPORT
+        # inside PHI_MRN), keep the outermost (earliest start). Without this,
+        # applying replacements in reverse order corrupts string offsets for the
+        # outer match, producing artifacts like "[PHI_MRN]T]".
+        findings = _dedup_overlapping(findings)
+
         if self.mode == ScanMode.BLOCK:
             raise PIIDetectedError(findings)
 
-        # Apply replacements in reverse order (preserve offsets)
+        # Apply replacements in reverse order so earlier offsets stay valid
         cleaned = text
         for f in sorted(findings, key=lambda x: x.start, reverse=True):
             replacement = f"[{f.entity_type}]" if self.mode == ScanMode.MASK else "***"
