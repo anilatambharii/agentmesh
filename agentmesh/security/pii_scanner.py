@@ -145,10 +145,15 @@ class PIIScanner:
         mode: ScanMode = ScanMode.MASK,
         enabled_types: Optional[List[str]] = None,
         min_confidence: float = 0.7,
+        strict_pci: bool = True,
     ):
         self.mode = mode
         self.enabled = set(enabled_types) if enabled_types else None
         self.min_conf = min_confidence
+        # When True, any card-shaped number (13-19 digits) is masked even if
+        # it fails the Luhn check. Recommended for governance proxies — better
+        # to mask a false positive than let a real card number reach the LLM.
+        self.strict_pci = strict_pci
 
     def scan(self, text: str) -> ScanResult:
         if not text:
@@ -166,8 +171,10 @@ class PIIScanner:
                 if len(val) < min_len:
                     continue
 
-                # Extra validation for credit cards
-                if entity_type == "PCI_CARD":
+                # Credit card validation:
+                # strict_pci=True (default): mask anything card-shaped — safer for governance
+                # strict_pci=False: only mask numbers that pass Luhn — fewer false positives
+                if entity_type == "PCI_CARD" and not self.strict_pci:
                     digits_only = re.sub(r"\D", "", val)
                     if not _luhn(digits_only):
                         continue

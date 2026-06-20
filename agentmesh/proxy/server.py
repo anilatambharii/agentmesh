@@ -600,6 +600,7 @@ def _build_mesh(config: ProxyConfig) -> Any:
         PIIScanner(
             mode=ScanMode(config.pii_mode),
             enabled_types=config.pii_entity_types or None,
+            strict_pci=True,   # catch all card-shaped numbers, not just Luhn-valid ones
         )
         if config.pii_mode else None
     )
