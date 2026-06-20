@@ -9,10 +9,26 @@
 [![PyPI Downloads](https://static.pepy.tech/badge/agentmesh-proxy)](https://pepy.tech/project/agentmesh-proxy)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![HuggingFace Space](https://img.shields.io/badge/🤗%20HuggingFace-Space-blue)](https://huggingface.co/spaces/AmbhariiLabs/agentmesh)
+
+> ⭐ **If AgentMesh saves your team money or unblocks a compliance requirement, a GitHub star helps others find it.** [Star on GitHub →](https://github.com/anilatambharii/agentmesh)
 
 ---
 
 ![AgentMesh demo — 85% cache hit rate, 75% cost reduction](docs/demo.gif)
+
+---
+
+## Built for teams that ship AI at scale
+
+| If you're a... | AgentMesh gives you... |
+|---|---|
+| **Platform / AI Infra team** (Google, Meta, NVIDIA, Anthropic) | A drop-in governance sidecar for your internal LLM gateway |
+| **Enterprise CTO / VP Eng** | One policy file that enforces cost caps, compliance, and security across every AI tool your engineers use |
+| **Healthcare / Legal / Finance team** | HIPAA PHI masking + EU AI Act compliance reports out of the box |
+| **FinOps / Finance** | Per-team chargeback reports — know exactly which team spent what on AI |
+| **Security team** | Prompt injection detection + PII scanning + output toxicity filter on every request |
+| **Solo engineer / startup** | 75% cost reduction on day one, zero code changes to your agents |
 
 ---
 
