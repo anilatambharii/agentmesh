@@ -8,6 +8,7 @@ dist/
 *.egg-info/
 .eggs/
 .env
+.env.*
 .venv
 env/
 venv/
@@ -21,8 +22,19 @@ htmlcov/
 .DS_Store
 node_modules/
 
-# Private marketing / social media — not for open source community
+# ── Private: AI session files and prompts ─────────────────────────────────────
+.claude/
+.cursor/
+prompts/
+private/
+notes/
+scratch/
+
+# ── Private: marketing, social media, and personal content ───────────────────
+# Social asset images and HTML sources
 docs/social-assets/
+
+# One-off social media drafts (all platforms)
 docs/social-posts.md
 docs/x-thread.md
 docs/linkedin-post.md
@@ -35,16 +47,37 @@ docs/medium-article.md
 docs/devto-article.md
 docs/blog-how-i-cut-agent-bill-70-percent.md
 
-# Weekly social content (recur with date suffix each week)
+# Weekly social content — wildcards catch all future dated files
+docs/*linkedin*.md
+docs/*linkedin*.txt
+docs/*substack*.md
+docs/*substack*.txt
 docs/*article*.txt
 docs/*newsletter*.txt
 docs/*posts*.txt
+docs/*devto*.md
+docs/*devto*.txt
+docs/*medium*.md
+docs/*medium*.txt
+docs/*x-post*.md
+docs/*x-post*.txt
+docs/*social*.md
+docs/*social*.txt
+
+# ── Private: generated assets and local tooling ──────────────────────────────
+# Chrome Web Store submission assets (generated locally, not for repo)
+store_assets/
 
 # Dashboard run logs
 dashboard_*.txt
 
-# Chrome Web Store generated assets (private, generated locally)
-store_assets/
-
 # Duplicate HuggingFace space directory — canonical copy is spaces/
 hf-space/
+
+# Personal config or credential files
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials/
