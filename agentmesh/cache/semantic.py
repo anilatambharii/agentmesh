@@ -75,13 +75,13 @@ class SemanticCache:
     ``embedder`` callable to use OpenAI / Cohere / local embeddings.
 
     Args:
-        similarity_threshold: Cosine similarity above which a hit is declared (0.85–0.95 typical)
+        similarity_threshold: Cosine similarity above which a hit is declared (0.70 for sentence-transformers MiniLM; raise for the char-bigram fallback)
         ttl_seconds: Cache entries expire after this duration
         max_entries: Maximum number of entries to retain (LRU eviction)
         embedder: Optional callable (text) -> List[float] for production embeddings
 
     Example:
-        cache = SemanticCache(similarity_threshold=0.90)
+        cache = SemanticCache(similarity_threshold=0.70)
         cached = cache.get("What is the capital of France?")
         if cached:
             return cached  # free!
@@ -91,7 +91,7 @@ class SemanticCache:
 
     def __init__(
         self,
-        similarity_threshold: float = 0.88,
+        similarity_threshold: float = 0.70,
         ttl_seconds: int = 3600,
         max_entries: int = 10_000,
         embedder: Optional[Callable[[str], List[float]]] = None,

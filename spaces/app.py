@@ -119,22 +119,15 @@ def calculate_savings(
 
 # ── Gradio UI ─────────────────────────────────────────────────────────────
 
-with gr.Blocks(
-    title="AgentMesh — AI Agent Cost Calculator",
-    theme=gr.themes.Soft(primary_hue="indigo"),
-    css="""
-        .header { text-align: center; padding: 20px 0; }
-        .result-box { font-size: 1.1em; }
-    """,
-) as demo:
+with gr.Blocks(title="AgentMesh — AI Agent Cost Calculator") as demo:
     gr.HTML("""
     <div class="header">
         <h1>🕸️ AgentMesh Cost Savings Calculator</h1>
         <p><b>The governance plane for AI agents.</b> See how much you'd save.</p>
         <p>
             <a href="https://github.com/anilatambharii/agentmesh" target="_blank">GitHub</a> ·
-            <a href="https://pypi.org/project/agentmesh/" target="_blank">PyPI</a> ·
-            <code>pip install agentmesh</code>
+            <a href="https://pypi.org/project/agentmesh-proxy/" target="_blank">PyPI</a> ·
+            <code>pip install agentmesh-proxy</code>
         </p>
     </div>
     """)
@@ -209,7 +202,7 @@ print(mesh.stats)
 ### Quick Start
 
 ```bash
-pip install agentmesh
+pip install agentmesh-proxy
 agentmesh validate my-policy.yaml
 agentmesh compliance report --framework eu-ai-act --policy my-policy.yaml
 ```
@@ -219,4 +212,7 @@ Built by [Anil Prasad](https://github.com/anilatambharii) · [Apache 2.0 License
 
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(
+        theme=gr.themes.Soft(primary_hue="indigo"),
+        css=".header { text-align: center; padding: 20px 0; } .result-box { font-size: 1.1em; }",
+    )

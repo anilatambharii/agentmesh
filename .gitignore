@@ -21,5 +21,30 @@ htmlcov/
 .DS_Store
 node_modules/
 
-# Private marketing / publishing notes
+# Private marketing / social media — not for open source community
+docs/social-assets/
 docs/social-posts.md
+docs/x-thread.md
+docs/linkedin-post.md
+docs/linkedin-company-post.md
+docs/linkedin-profile.md
+docs/linkedin-week-jun23.md
+docs/linkedin-posts-copypaste.txt
+docs/substack-article.md
+docs/medium-article.md
+docs/devto-article.md
+docs/blog-how-i-cut-agent-bill-70-percent.md
+
+# Weekly social content (recur with date suffix each week)
+docs/*article*.txt
+docs/*newsletter*.txt
+docs/*posts*.txt
+
+# Dashboard run logs
+dashboard_*.txt
+
+# Chrome Web Store generated assets (private, generated locally)
+store_assets/
+
+# Duplicate HuggingFace space directory — canonical copy is spaces/
+hf-space/

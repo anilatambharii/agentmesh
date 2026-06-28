@@ -113,7 +113,7 @@ from agentmesh.cache import SemanticCache
 #     return openai_client.embeddings.create(input=text, model="text-embedding-3-small").data[0].embedding
 
 cache = SemanticCache(
-    similarity_threshold=0.90,
+    similarity_threshold=0.70,
     ttl_seconds=1800,
     # embedder=embedder,  # optional: use real embeddings
 )
@@ -122,7 +122,7 @@ from agentmesh.core import AgentMeshConfig
 config = AgentMeshConfig(
     policy=policy,
     enable_caching=True,
-    cache_similarity_threshold=0.90,
+    cache_similarity_threshold=0.70,
 )
 mesh = AgentMesh(config=config)
 

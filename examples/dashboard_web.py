@@ -231,7 +231,7 @@ def get_cache_data():
 | **Cache entries** | {len(misses)} |
 
 **How it works:** AgentMesh computes n-gram embeddings of each prompt and stores them in memory.
-When a new prompt has cosine similarity ≥ 0.88 to a cached entry, the cached response is returned
+When a new prompt has cosine similarity ≥ 0.70 to a cached entry, the cached response is returned
 — no LLM call needed. Zero external dependencies.
 """
 

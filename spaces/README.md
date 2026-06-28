@@ -4,7 +4,7 @@ emoji: 🕸️
 colorFrom: indigo
 colorTo: blue
 sdk: gradio
-sdk_version: "4.44.0"
+python_version: "3.11"
 app_file: app.py
 pinned: true
 license: apache-2.0
@@ -41,7 +41,7 @@ AgentMesh is an open-source framework-agnostic sidecar that enforces:
 ## Usage
 
 ```bash
-pip install agentmesh
+pip install agentmesh-proxy
 ```
 
 ```python

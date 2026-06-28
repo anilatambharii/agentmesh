@@ -4,7 +4,7 @@ Embedding chain for semantic cache similarity.
 Falls back gracefully through three tiers based on what's installed:
 
   Tier 1 — sentence-transformers (all-MiniLM-L6-v2)
-    dim=384, threshold=0.78
+    dim=384, threshold=0.70
     Captures meaning, not surface form. Best for paraphrased prompts.
 
   Tier 2 — word bigram
