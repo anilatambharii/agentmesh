@@ -6,6 +6,29 @@ AgentMesh uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## Chrome Extension [0.2.3] — 2026-07-10
+
+### Fixed
+- **Send no longer blocks or requires a second click.** The content script
+  used to `preventDefault()` every Send/Enter, gate it behind a proxy round
+  trip, and require the user to click "Send as-is" (or wait out a 4s timer)
+  before the message actually went anywhere — on every single prompt.
+  Governance feedback is now fire-and-forget: the real send fires
+  immediately and normally, and an informational toast (cache hit,
+  compression available, quota warning) appears afterward only when there's
+  something worth surfacing. Nothing is ever gated on it.
+- **The "governance check" was a real LLM call, not a dry run.** The
+  background service worker's comments claimed `X-AgentMesh-Dry-Run: true`
+  was sent with the pre-check request; the header was never actually set,
+  so every check silently triggered a full vendor-routed generation instead
+  of the instant preview path. This was the dominant source of the
+  multi-second delay before a message would send.
+- Removed the "Send Optimized" swap-in feature — it was parsing the
+  dry-run preview text as if it were usable prompt content and offering to
+  substitute it into the chat box, which was never safe.
+
+---
+
 ## [0.2.0] — 2026-06-12
 
 ### Added

@@ -73,9 +73,14 @@ async function optimizePrompt({ prompt, tool, team, user }) {
   const base = proxyUrl(port);
 
   const headers = {
-    'Content-Type':     'application/json',
-    'x-api-key':        'agentmesh',
-    'X-AgentMesh-Tool': tool || 'browser-extension',
+    'Content-Type':          'application/json',
+    'x-api-key':             'agentmesh',
+    'X-AgentMesh-Tool':      tool || 'browser-extension',
+    // Critical: without this, the "governance check" is a REAL LLM call —
+    // full vendor routing + generation — instead of the instant preview
+    // path. That round trip (1-3s+, sometimes more) was the entire source
+    // of the send-delay users were hitting on every single message.
+    'X-AgentMesh-Dry-Run':   'true',
   };
   if (team) headers['X-AgentMesh-Team'] = team;
   if (user) headers['X-AgentMesh-User'] = user;
@@ -89,7 +94,10 @@ async function optimizePrompt({ prompt, tool, team, user }) {
         max_tokens: 256,
         messages:   [{ role: 'user', content: prompt }],
       }),
-      signal: AbortSignal.timeout(8000),
+      // This now only fetches cache/quota/compression metadata for an
+      // informational toast — it never blocks the user's actual send — so
+      // a short timeout is fine; a slow/unreachable proxy just means no toast.
+      signal: AbortSignal.timeout(3000),
     });
 
     const cacheStatus  = r.headers.get('x-agentmesh-cache')     || 'miss';
@@ -98,14 +106,6 @@ async function optimizePrompt({ prompt, tool, team, user }) {
     const isCompressed = r.headers.get('x-agentmesh-compressed') === 'true';
     const vendor       = r.headers.get('x-agentmesh-vendor')    || '';
     const costUsd      = parseFloat(r.headers.get('x-agentmesh-cost-usd') || '0');
-
-    // Pull optimized content if the proxy returned one
-    let optimizedPrompt = null;
-    try {
-      const body = await r.json();
-      const text = body?.content?.[0]?.text;
-      if (text && text !== prompt) optimizedPrompt = text;
-    } catch { /* ignore */ }
 
     // Update stats
     stats.intercepted++;
@@ -119,7 +119,7 @@ async function optimizePrompt({ prompt, tool, team, user }) {
     if (isCompressed) stats.optimized++;
     _persistStats();
 
-    return { ok: true, cacheStatus, tokens, quotaPct, isCompressed, vendor, costUsd, optimizedPrompt };
+    return { ok: true, cacheStatus, tokens, quotaPct, isCompressed, vendor, costUsd };
   } catch (err) {
     return { ok: false, error: err.message };
   }
