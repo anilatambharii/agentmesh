@@ -1,0 +1,73 @@
+# AgentMesh Policy Template: EU AI Act — High-Risk System (Annex III)
+# ─────────────────────────────────────────────────────────────────
+# Target: Any AI system in scope of Article 6 / Annex III — biometric ID,
+#         employment/HR screening, credit and insurance decisions, access
+#         to essential services, law enforcement risk assessment.
+#
+# Compliance: EU AI Act Articles 12 (record-keeping), 14 (human oversight),
+#             15 (accuracy/robustness/cybersecurity), 17 (QMS)
+# Risk level: CRITICAL — statutory high-risk classification
+#
+# Check readiness against this policy with:
+#   agentmesh compliance readiness --policy eu-ai-act-high-risk.yaml
+#
+# Usage:
+#   from agentmesh.templates import load_template
+#   policy = Policy.from_yaml(load_template("eu_ai_act_high_risk"))
+
+version: "1.0"
+policies:
+  - name: eu-ai-act-high-risk
+    applies_to:
+      teams: ["risk", "compliance", "hr-tech", "credit-decisioning"]
+      agent_roles: ["scorer", "screener", "decision-support"]
+
+    budget:
+      daily_tokens: 1_000_000
+      monthly_usd: 3_000
+      per_run_tokens: 20_000
+      hard_stop: true                  # Article 14: a human must be able to halt the system
+
+    model_routing:
+      default: "claude-haiku-4-5"
+      upgrade_triggers:
+        - condition: "task_complexity > 0.85"
+          model: "claude-sonnet-4-6"
+      max_allowed: "claude-sonnet-4-6"
+
+    optimization:
+      semantic_cache: false            # Article 15: decisions must reflect current inputs, not stale cache
+      compression_threshold: 0.80
+      context_pruning: true
+      cache_ttl_seconds: 0
+
+    circuit_breaker:
+      max_iterations: 10
+      max_tool_calls: 20
+      stall_detection_seconds: 60
+
+    compliance:
+      frameworks:
+        - eu-ai-act
+        - iso-42001
+      pii_detection: true
+      data_residency: "eu"
+
+    # Article 14: any decision that materially affects a person (score,
+    # screen, deny, flag) is routed to a human before it takes effect —
+    # not just logged after the fact.
+    approval:
+      rules:
+        - name: high-impact-decisions
+          tool_patterns: ["score_*", "screen_*", "deny_*", "flag_*", "reject_*"]
+        - name: high-cost-inference
+          min_cost_usd: 1.00
+      timeout_seconds: 1800
+      timeout_action: deny             # fail closed — no response defaults to no action
+
+    metadata:
+      template: "eu_ai_act_high_risk"
+      risk_level: "critical"
+      eu_ai_act_annex_iii: true
+      enforcement_date: "2026-08-02"
+      last_reviewed: "2026-07-09"

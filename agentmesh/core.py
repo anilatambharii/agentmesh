@@ -101,6 +101,23 @@ class AgentMesh:
         self.escalation_mgr:   Optional[Any] = None
         self.multi_vendor:     Optional[Any] = None
         self.cost_optimizer:   Optional[Any] = None
+        self.otel_exporter:    Optional[Any] = None
+        self.approval_gateway: Optional[Any] = None
+
+        approval_cfg = self.policy.schema.approval
+        if approval_cfg.rules:
+            from agentmesh.approval.gateway import ApprovalGateway, ApprovalRule
+            self.approval_gateway = ApprovalGateway(
+                rules=[
+                    ApprovalRule(
+                        name=r.name, teams=r.teams, tool_patterns=r.tool_patterns,
+                        min_cost_usd=r.min_cost_usd, min_tokens=r.min_tokens,
+                    )
+                    for r in approval_cfg.rules
+                ],
+                default_timeout_seconds=approval_cfg.timeout_seconds,
+                default_timeout_action=approval_cfg.timeout_action,
+            )
 
         if self.config.enable_quota and self.config.quota_policy is not None:
             from agentmesh.quota.engine import QuotaEnforcer
@@ -126,6 +143,10 @@ class AgentMesh:
             self.cost_optimizer = CostOptimizer(
                 similarity_threshold=self.config.cost_optimizer_threshold,
             )
+
+        if self.config.otel_endpoint:
+            from agentmesh.monitoring.otel_exporter import OTelExporter
+            self.otel_exporter = OTelExporter(endpoint=self.config.otel_endpoint).start()
 
         logging.basicConfig(level=getattr(logging, self.config.log_level))
         logger.info("AgentMesh initialized with policy: %s", self.policy.name)
@@ -338,6 +359,8 @@ class AgentMesh:
             s["quota"] = {"usage": self.quota_enforcer.usage_summary()}
         if self.escalation_mgr:
             s["escalations"] = self.escalation_mgr.summary()
+        if self.approval_gateway:
+            s["approvals"] = self.approval_gateway.summary()
         if self.cost_optimizer:
             s["cost_optimizer"] = self.cost_optimizer.stats
         return s

@@ -52,6 +52,20 @@ policies:
       pii_detection: true
       data_residency: "us"                 # PCI-DSS: data must stay in-region
 
+    # An agent that can move money without a human check is not a rogue
+    # agent — it's a correctly functioning agent with a catastrophic job
+    # description. Wire/payment tools and large-value calls always pause
+    # for a human, whether the request comes through the LLM proxy or
+    # a wrapped MCP tool server (agentmesh wrap).
+    approval:
+      rules:
+        - name: payment-movement
+          tool_patterns: ["wire_transfer*", "send_payment*", "transfer_funds*", "issue_refund*"]
+        - name: large-value-calls
+          min_cost_usd: 5.00
+      timeout_seconds: 900
+      timeout_action: deny
+
     metadata:
       template: "fintech"
       risk_level: "high"

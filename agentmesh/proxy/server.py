@@ -37,6 +37,7 @@ Then in any tool:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
@@ -96,6 +97,15 @@ class ProxyConfig:
     slack_webhook:         str             = ""     # Slack incoming webhook URL
     pagerduty_key:         str             = ""     # PagerDuty Events API routing key
     sso_enabled:           bool            = False  # extract identity from JWT/SAML headers
+    otel_endpoint:         str             = ""     # OTLP collector, e.g. http://localhost:4317
+    # ── Human-in-the-loop approval ────────────────────────────────────────────
+    approval_min_cost_usd: float           = 0.0    # 0 = disabled; blanket "any call over $X needs approval"
+    approval_tools:        List[str]       = field(default_factory=list)  # glob patterns needing approval regardless of cost
+    approval_timeout_seconds: int          = 900
+    approval_timeout_action: str           = "deny"  # "deny" | "allow" if nobody responds in time
+    # ── Per-agent virtual API keys ─────────────────────────────────────────────
+    virtual_keys_enabled:  bool            = False
+    virtual_keys_store:    str             = ""     # JSON file to persist key hashes across restarts
 
 
 # ── Identity extraction ───────────────────────────────────────────────────────
@@ -170,6 +180,7 @@ def build_proxy_app(config: ProxyConfig) -> FastAPI:
                 "toxicity_filter":   config.toxicity_filter,
                 "anomaly_detection": config.anomaly_detection,
                 "sso_enabled":       config.sso_enabled,
+                "otel_enabled":      bool(mesh.otel_exporter and mesh.otel_exporter.available),
             },
         }
 
@@ -182,6 +193,88 @@ def build_proxy_app(config: ProxyConfig) -> FastAPI:
                 models.append({"id": info["model"], "object": "model",
                                 "created": 1_700_000_000, "owned_by": vendor})
         return {"object": "list", "data": models}
+
+    @app.get("/v1/approvals")
+    async def list_approvals():
+        if not mesh.approval_gateway:
+            return JSONResponse(status_code=404, content={"error": "No approval rules configured on this proxy."})
+        return mesh.approval_gateway.summary()
+
+    @app.get("/v1/approvals/{approval_id}")
+    async def get_approval(approval_id: str):
+        if not mesh.approval_gateway:
+            return JSONResponse(status_code=404, content={"error": "No approval rules configured on this proxy."})
+        req = mesh.approval_gateway.get(approval_id)
+        if not req:
+            return JSONResponse(status_code=404, content={"error": f"No such approval request: {approval_id}"})
+        return req.to_dict()
+
+    @app.post("/v1/approvals/{approval_id}/approve")
+    async def approve_approval(approval_id: str, request: Request):
+        if not mesh.approval_gateway:
+            return JSONResponse(status_code=404, content={"error": "No approval rules configured on this proxy."})
+        body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+        try:
+            req = mesh.approval_gateway.approve(
+                approval_id,
+                approved_by=body.get("approved_by", "admin"),
+                notes=body.get("notes", ""),
+            )
+        except ValueError as e:
+            return JSONResponse(status_code=400, content={"error": str(e)})
+        bus.emit(GovernanceEvent(kind="approval_resolved", team=req.team, tool=req.tool,
+                                  message=f"{req.id} approved by {req.decided_by}"))
+        return req.to_dict()
+
+    @app.post("/v1/approvals/{approval_id}/deny")
+    async def deny_approval(approval_id: str, request: Request):
+        if not mesh.approval_gateway:
+            return JSONResponse(status_code=404, content={"error": "No approval rules configured on this proxy."})
+        body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+        try:
+            req = mesh.approval_gateway.deny(
+                approval_id,
+                approved_by=body.get("approved_by", "admin"),
+                notes=body.get("notes", ""),
+            )
+        except ValueError as e:
+            return JSONResponse(status_code=400, content={"error": str(e)})
+        bus.emit(GovernanceEvent(kind="approval_resolved", team=req.team, tool=req.tool,
+                                  message=f"{req.id} denied by {req.decided_by}"))
+        return req.to_dict()
+
+    @app.post("/v1/keys")
+    async def create_key(request: Request):
+        if not mesh.key_manager:
+            return JSONResponse(status_code=404, content={"error": "Virtual keys not enabled on this proxy."})
+        body = await request.json()
+        agent_id = body.get("agent_id")
+        if not agent_id:
+            return JSONResponse(status_code=400, content={"error": "agent_id is required"})
+        issued = mesh.key_manager.create(
+            agent_id=agent_id, team=body.get("team", ""), user=body.get("user", ""),
+            tool=body.get("tool", ""), scopes=body.get("scopes"), description=body.get("description", ""),
+        )
+        return {"key": issued.key, "warning": "Store this now — it cannot be shown again.",
+                **issued.record.to_dict()}
+
+    @app.get("/v1/keys")
+    async def list_keys(team: str = "", agent_id: str = ""):
+        if not mesh.key_manager:
+            return JSONResponse(status_code=404, content={"error": "Virtual keys not enabled on this proxy."})
+        records = mesh.key_manager.list(team=team or None, agent_id=agent_id or None)
+        return {"keys": [r.to_dict() for r in records]}
+
+    @app.post("/v1/keys/{key_id}/revoke")
+    async def revoke_key(key_id: str, request: Request):
+        if not mesh.key_manager:
+            return JSONResponse(status_code=404, content={"error": "Virtual keys not enabled on this proxy."})
+        body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+        try:
+            record = mesh.key_manager.revoke(key_id, reason=body.get("reason", ""))
+        except ValueError as e:
+            return JSONResponse(status_code=404, content={"error": str(e)})
+        return record.to_dict()
 
     @app.post("/v1/messages")
     async def messages_ep(request: Request):
@@ -230,6 +323,33 @@ async def _govern(
     }
     if team == "default" and not request.headers.get("X-AgentMesh-Team"):
         hdrs["X-AgentMesh-Team-Inferred"] = "true"
+
+    # ── 0.4. Virtual key resolution ───────────────────────────────────────────
+    # A caller authenticating with an amk_live_... virtual key gets its identity
+    # (agent/team/tool/scope) from the key record, not from spoofable headers —
+    # and the raw virtual key is never forwarded upstream as a vendor credential;
+    # the proxy falls back to its own server-side vendor key for the real call.
+    if mesh.key_manager and api_key and api_key.startswith("amk_live_"):
+        vkey = mesh.key_manager.resolve(api_key)
+        if not vkey:
+            return JSONResponse(
+                status_code=401,
+                content={"error": {"type": "invalid_virtual_key",
+                                   "message": "Unknown or revoked virtual key."}},
+            )
+        team = vkey.team or team
+        user = vkey.user or user
+        tool = vkey.tool or tool
+        identity = identity.__class__(user=user, team=team, tool=tool)
+        api_key = None
+        hdrs["X-AgentMesh-Team"]     = team
+        hdrs["X-AgentMesh-Agent-Id"] = vkey.agent_id
+        if not vkey.allows(tool):
+            return JSONResponse(
+                status_code=403,
+                content={"error": {"type": "scope_denied",
+                                   "message": f"Virtual key {vkey.key_id} is not scoped for tool '{tool}'"}},
+            )
 
     # ── 0.5. SSO / SAML identity override ────────────────────────────────────
     if config.sso_enabled and mesh.sso_extractor:
@@ -361,6 +481,22 @@ async def _govern(
             + f"\n\nEstimated input tokens: ~{estimate_input_tokens(internal):,}"
         )
         hdrs["X-AgentMesh-Dry-Run"] = "true"
+
+        # A dry-run miss deliberately skips real generation to stay fast — but
+        # that means it would never populate the cache, so a repeat of the
+        # exact same prompt would miss forever. Warm the cache in the
+        # background instead: the caller gets the instant preview now, and a
+        # second identical dry-run shortly after gets a real cache hit,
+        # without ever blocking on the generation itself.
+        if mesh.cache and cache_key:
+            bg_vendor = config.vendors[0] if config.vendors else "anthropic"
+            bg_demo   = config.demo_mode or not has_api_key(bg_vendor, api_key)
+            asyncio.create_task(_background_warm_cache(
+                mesh=mesh, cache_key=cache_key, vendor=bg_vendor, model=model_hint,
+                messages=messages, max_tokens=max_tokens, temperature=temperature,
+                api_key=api_key, demo_mode=bg_demo,
+            ))
+
         return JSONResponse(
             content=format_response_for_client(preview, model_hint, client_fmt),
             headers=hdrs,
@@ -396,6 +532,79 @@ async def _govern(
               message=f"team '{team}' deterministic mode: temperature=0, model={model}")
     else:
         hdrs["X-AgentMesh-Deterministic"] = "false"
+
+    # ── 5.7. Human-in-the-loop approval gate ──────────────────────────────────
+    # Not a blocking wait: a matched call is parked as PENDING and the caller
+    # gets a 202 back immediately. Once a human resolves it (dashboard, Slack
+    # button, or `agentmesh approval approve`), the caller resubmits the exact
+    # same request with X-AgentMesh-Approval-Id to proceed.
+    if mesh.approval_gateway:
+        from agentmesh.approval.gateway import ApprovalStatus
+        approval_id = request.headers.get("X-AgentMesh-Approval-Id", "")
+        approved_inline = False
+        if approval_id:
+            existing = mesh.approval_gateway.get(approval_id)
+            if existing is None:
+                hdrs["X-AgentMesh-Approval-Status"] = "unknown"
+                return JSONResponse(
+                    status_code=404, headers=hdrs,
+                    content={"error": {"type": "approval_not_found",
+                                       "message": f"No such approval request: {approval_id}"}},
+                )
+            if existing.status == ApprovalStatus.APPROVED:
+                approved_inline = True
+                hdrs["X-AgentMesh-Approval-Id"] = approval_id
+                hdrs["X-AgentMesh-Approval-Status"] = "approved"
+            elif existing.status in (ApprovalStatus.DENIED, ApprovalStatus.EXPIRED):
+                hdrs["X-AgentMesh-Approval-Status"] = existing.status.value
+                return JSONResponse(
+                    status_code=403, headers=hdrs,
+                    content={"error": {"type": "approval_denied",
+                                       "message": f"Request {approval_id} was {existing.status.value}",
+                                       "notes": existing.notes}},
+                )
+            else:
+                hdrs["X-AgentMesh-Approval-Status"] = "pending"
+                return JSONResponse(
+                    status_code=202, headers=hdrs,
+                    content={"status": "pending_approval", "approval_id": approval_id,
+                             "message": "Still awaiting a human decision."},
+                )
+
+        if not approved_inline:
+            from agentmesh.optimizer.multi_vendor import (VENDOR_CATALOG,
+                _complexity_score as _est_score, _tier_from_score as _est_tier)
+            score, _ = _est_score(cache_key)
+            cat = VENDOR_CATALOG.get(vendor, {}).get(_est_tier(score), {})
+            est_in  = estimate_input_tokens(internal)
+            est_out = max_tokens
+            est_cost = (est_in / 1_000_000) * cat.get("input_per_1m", 0) + \
+                       (est_out / 1_000_000) * cat.get("output_per_1m", 0)
+
+            decision = mesh.approval_gateway.evaluate(team=team, tool=tool, cost_usd=est_cost, tokens=est_in + est_out)
+            if decision.requires_approval:
+                areq = mesh.approval_gateway.request(
+                    team=team, user=user, tool=tool,
+                    description=f"{model} call via {tool} — ~{est_in + est_out:,} tokens, ~${est_cost:.4f}",
+                    cost_usd=est_cost, tokens=est_in + est_out, rule=decision.rule,
+                )
+                _emit("approval_required", model=model, vendor=vendor, cost_usd=est_cost,
+                      message=f"{decision.reason} — {areq.id}")
+                hdrs["X-AgentMesh-Approval-Id"]     = areq.id
+                hdrs["X-AgentMesh-Approval-Status"] = "pending"
+                return JSONResponse(
+                    status_code=202, headers=hdrs,
+                    content={
+                        "status": "pending_approval",
+                        "approval_id": areq.id,
+                        "reason": decision.reason,
+                        "message": (
+                            f"This call requires human approval. Resolve via "
+                            f"POST /v1/approvals/{areq.id}/approve (or /deny), then resubmit "
+                            f"this exact request with header 'X-AgentMesh-Approval-Id: {areq.id}'."
+                        ),
+                    },
+                )
 
     # ── 6. Audit ──────────────────────────────────────────────────────────────
     mesh.audit.record_call({"messages": messages, "model": model})
@@ -522,6 +731,37 @@ async def _govern(
     )
 
 
+async def _background_warm_cache(
+    mesh: Any,
+    cache_key: str,
+    vendor: str,
+    model: str,
+    messages: List[Dict[str, Any]],
+    max_tokens: int,
+    temperature: float,
+    api_key: Optional[str],
+    demo_mode: bool,
+) -> None:
+    """
+    Fire-and-forget: generate a real response for a dry-run cache miss and
+    store it, so a subsequent identical prompt is a genuine cache hit.
+    Never raises — this runs detached from the request that triggered it,
+    so there is no caller left to hand an exception to.
+    """
+    try:
+        raw = await forward(
+            vendor=vendor, model=model, messages=messages,
+            max_tokens=max_tokens, temperature=temperature,
+            client_key=api_key, demo_mode=demo_mode,
+        )
+        content, tok_in, tok_out = extract_response_content(raw, vendor)
+        tokens_total = tok_in + tok_out
+        if mesh.cache and content and tokens_total > 0 and not raw.get("_error"):
+            mesh.cache.put(cache_key, raw, model=model, tokens=tokens_total)
+    except Exception as e:
+        logger.debug("Background cache warm failed for vendor=%s model=%s: %s", vendor, model, e)
+
+
 # ── SSE helpers ───────────────────────────────────────────────────────────────
 
 import json as _json
@@ -565,6 +805,7 @@ def _extract_sse_text(chunks: list) -> str:
 
 def _build_mesh(config: ProxyConfig) -> Any:
     from agentmesh.core import AgentMesh, AgentMeshConfig
+    from agentmesh.policy.engine import Policy
     from agentmesh.quota.engine import QuotaPolicy
     qp = QuotaPolicy(
         global_monthly_tokens=config.global_monthly_tokens,
@@ -574,7 +815,24 @@ def _build_mesh(config: ProxyConfig) -> Any:
         auto_escalate=config.auto_escalate,
         temp_grant_tokens=config.temp_grant_tokens,
     )
+
+    approval_rules = []
+    if config.approval_min_cost_usd > 0:
+        approval_rules.append({"name": "cost-threshold", "min_cost_usd": config.approval_min_cost_usd})
+    if config.approval_tools:
+        approval_rules.append({"name": "gated-tools", "tool_patterns": config.approval_tools})
+    policy = Policy.from_dict({
+        "name": "agentmesh-proxy-policy",
+        "budget": {"per_run_tokens": 200_000, "hard_stop": False},
+        "approval": {
+            "rules": approval_rules,
+            "timeout_seconds": config.approval_timeout_seconds,
+            "timeout_action": config.approval_timeout_action,
+        },
+    })
+
     cfg = AgentMeshConfig(
+        policy=policy,
         enable_caching=config.enable_cache,
         cache_similarity_threshold=config.cache_threshold,
         enable_compression=config.enable_compression,
@@ -612,9 +870,20 @@ def _build_mesh(config: ProxyConfig) -> Any:
     mesh.anomaly_detector = AnomalyDetector() if config.anomaly_detection else None
     mesh.sso_extractor = SSOIdentityExtractor() if config.sso_enabled else None
 
+    mesh.key_manager = None
+    if config.virtual_keys_enabled:
+        from agentmesh.identity.keys import VirtualKeyManager
+        mesh.key_manager = VirtualKeyManager(store_path=config.virtual_keys_store or None)
+
     slack  = SlackConfig(webhook_url=config.slack_webhook)   if config.slack_webhook   else None
     pager  = PagerDutyConfig(routing_key=config.pagerduty_key) if config.pagerduty_key else None
     mesh.alert_router = AlertRouter(slack=slack, pagerduty=pager) if (slack or pager) else None
+    if mesh.approval_gateway:
+        mesh.approval_gateway.alert_router = mesh.alert_router
+
+    if config.otel_endpoint and not mesh.otel_exporter:
+        from agentmesh.monitoring.otel_exporter import OTelExporter
+        mesh.otel_exporter = OTelExporter(endpoint=config.otel_endpoint).start()
 
     # Optionally swap in Redis cache backend
     if config.redis_url and mesh.cache:

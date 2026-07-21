@@ -10,6 +10,8 @@ from agentmesh.attribution.chargebacks import CostAttributor
 from agentmesh.compliance.reporter import ComplianceReporter
 from agentmesh.quota.engine import QuotaPolicy, QuotaEnforcer, QuotaIdentity, QuotaCheckResult
 from agentmesh.quota.escalation import EscalationManager
+from agentmesh.approval.gateway import ApprovalGateway, ApprovalRule, ApprovalRequest, ApprovalStatus
+from agentmesh.identity.keys import VirtualKeyManager, VirtualKey, IssuedKey
 from agentmesh.optimizer.multi_vendor import MultiVendorRouter
 from agentmesh.optimizer.cost_optimizer import CostOptimizer
 from agentmesh.events.bus import EventBus, GovernanceEvent, get_bus
@@ -45,6 +47,15 @@ __all__ = [
     "QuotaCheckResult",
     # Escalation
     "EscalationManager",
+    # Human-in-the-loop approval
+    "ApprovalGateway",
+    "ApprovalRule",
+    "ApprovalRequest",
+    "ApprovalStatus",
+    # Per-agent virtual API keys
+    "VirtualKeyManager",
+    "VirtualKey",
+    "IssuedKey",
     # Multi-vendor routing
     "MultiVendorRouter",
     # Cost optimizer

@@ -67,6 +67,24 @@ class AppliesToConfig(BaseModel):
     workflow_names: List[str] = Field(default_factory=list)
 
 
+class ApprovalRuleConfig(BaseModel):
+    """One human-in-the-loop gate. A call needs approval when it falls in
+    scope (teams/tool_patterns) AND crosses a configured threshold — or,
+    if no threshold is set, whenever it falls in scope at all (a blanket
+    rule for a specific tool, e.g. "any call to wire_transfer")."""
+    name: str = ""
+    teams: List[str] = Field(default_factory=list)          # empty = all teams
+    tool_patterns: List[str] = Field(default_factory=list)  # glob patterns; empty = all tools
+    min_cost_usd: Optional[float] = None
+    min_tokens: Optional[int] = None
+
+
+class ApprovalConfig(BaseModel):
+    rules: List[ApprovalRuleConfig] = Field(default_factory=list)
+    timeout_seconds: int = 900
+    timeout_action: str = "deny"   # "deny" | "allow" — what happens if nobody responds in time
+
+
 class PolicySchema(BaseModel):
     name: str
     applies_to: Optional[AppliesToConfig] = None
@@ -75,4 +93,5 @@ class PolicySchema(BaseModel):
     optimization: OptimizationConfig = Field(default_factory=OptimizationConfig)
     circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
     compliance: ComplianceConfig = Field(default_factory=ComplianceConfig)
+    approval: ApprovalConfig = Field(default_factory=ApprovalConfig)
     metadata: Dict[str, Any] = Field(default_factory=dict)

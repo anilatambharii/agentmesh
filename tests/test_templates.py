@@ -1,11 +1,12 @@
 """Tests for built-in policy templates."""
 
 import pytest
-from agentmesh.templates import load_template, TEMPLATE_DIR
+from agentmesh.templates import load_template, list_templates, TEMPLATE_DIR
 from agentmesh.policy.engine import Policy
 
 
-AVAILABLE_TEMPLATES = ["fintech", "healthcare", "enterprise", "research", "customer_service", "nvidia_nim"]
+AVAILABLE_TEMPLATES = ["fintech", "healthcare", "enterprise", "research", "customer_service",
+                        "nvidia_nim", "eu_ai_act_high_risk"]
 
 
 @pytest.mark.parametrize("template_name", AVAILABLE_TEMPLATES)
@@ -65,3 +66,24 @@ def test_template_dir_exists():
     assert TEMPLATE_DIR.exists()
     yamls = list(TEMPLATE_DIR.glob("*.yaml"))
     assert len(yamls) >= len(AVAILABLE_TEMPLATES)
+
+
+def test_template_eu_ai_act_high_risk_has_approval_rules():
+    policy = Policy.from_yaml(load_template("eu_ai_act_high_risk"))
+    assert len(policy.schema.approval.rules) >= 1
+    assert policy.schema.approval.timeout_action == "deny"
+    frameworks = [f.value for f in policy.schema.compliance.frameworks]
+    assert "eu-ai-act" in frameworks
+
+
+def test_template_fintech_gates_payment_tools():
+    policy = Policy.from_yaml(load_template("fintech"))
+    patterns = [p for rule in policy.schema.approval.rules for p in rule.tool_patterns]
+    assert any("wire_transfer" in p for p in patterns)
+
+
+def test_list_templates_covers_every_bundled_pack():
+    templates = list_templates()
+    for name in AVAILABLE_TEMPLATES:
+        assert name in templates
+        assert templates[name]  # non-empty title parsed from the file header
